@@ -237,12 +237,12 @@ function Write-Launcher($Data) {
 
         $folderLines = New-Object System.Collections.Generic.List[string]
         $folderLines.Add("[Rainmeter]")
-        $folderLines.Add("@Include=#@#FolderTemplate.inc")
         $folderLines.Add("Update=1000")
         $folderLines.Add("AccurateText=1")
         $folderLines.Add("DynamicWindowSize=1")
         $folderLines.Add("Draggable=1")
         $folderLines.Add("KeepPosition=1")
+        $folderLines.Add("KeepOnScreen=0")
         $folderLines.Add("SolidColor=0,0,0,1")
         $folderLines.Add("WindowX=$x")
         $folderLines.Add("WindowY=$y")
@@ -255,7 +255,6 @@ function Write-Launcher($Data) {
         $folderLines.Add("[Variables]")
         $folderLines.Add("FolderID=$folderId")
         $folderLines.Add("FolderName=$(Escape-Ini ([string]$folder.name))")
-        $folderLines.Add("")
 
         $apps = @($folder.shortcuts)
         $appCols = 4
@@ -268,29 +267,30 @@ function Write-Launcher($Data) {
         $folderLines.Add("FolderPath=#CURRENTCONFIGDIR#")
         $folderLines.Add("")
 
-        # --- NEW: 2x2 Android Mini-Icon Folder Preview ---
+        $folderLines.Add("@Include=#@#FolderTemplate.inc")
+        $folderLines.Add("")
+
+        # 2x2 Mini-Icon Folder Preview
         $previewCount = [Math]::Min(4, $apps.Count)
         for ($p=0; $p -lt $previewCount; $p++) {
             $pApp = $apps[$p]
             $pCol = $p % 2
             $pRow = [Math]::Floor($p / 2)
-            # Inside FolderIcon (X=32, Y=18, W=48, H=48):
-            # 6px padding + 16px icon + 4px gap + 16px icon + 6px padding = 48px
-            $px = 32 + 6 + ($pCol * 20)
-            $py = 18 + 6 + ($pRow * 20)
+            $px = 38 + ($pCol * 20)
+            $py = 24 + ($pRow * 20)
             $pIcon = [string]$pApp.icon
             if (!$pIcon -or !(Test-Path (Join-Path $IconDir $pIcon))) { $pIcon = "app_default.png" }
 
             $folderLines.Add("[FolderPreview_${p}]")
             $folderLines.Add("Meter=Image")
             $folderLines.Add("ImageName=#@#Icons\$pIcon")
-            $folderLines.Add("X=$px")
-            $folderLines.Add("Y=$py")
+            $folderLines.Add("X=($px + #IconOffsetX#)")
+            $folderLines.Add("Y=($py + #IconOffsetY#)")
             $folderLines.Add("W=16")
             $folderLines.Add("H=16")
             $folderLines.Add("PreserveAspectRatio=1")
             $folderLines.Add("DynamicVariables=1")
-            $folderLines.Add("LeftMouseUpAction=[!ToggleMeterGroup PanelContent][!Redraw]")
+            $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]')
             $folderLines.Add("")
         }
 
@@ -298,15 +298,16 @@ function Write-Launcher($Data) {
             $folderLines.Add("[PanelEmpty]")
             $folderLines.Add("Meter=String")
             $folderLines.Add("Group=PanelContent")
-            $folderLines.Add("X=34")
-            $folderLines.Add("Y=154")
-            $folderLines.Add("W=$($panelW-32)")
-            $folderLines.Add("H=24")
+            $folderLines.Add("X=((#PanelX# + 16) * #IsOpen#)")
+            $folderLines.Add("Y=((#PanelY# + 50) * #IsOpen#)")
+            $folderLines.Add("W=(($panelW - 32) * #IsOpen#)")
+            $folderLines.Add("H=(24 * #IsOpen#)")
             $folderLines.Add("Text=No shortcuts yet.")
             $folderLines.Add("FontFace=Segoe UI")
             $folderLines.Add("FontSize=10")
             $folderLines.Add("FontColor=175,185,205,255")
             $folderLines.Add("AntiAlias=1")
+            $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
             $folderLines.Add("")
         }
@@ -316,12 +317,10 @@ function Write-Launcher($Data) {
             $col = $j % $appCols
             $row = [Math]::Floor($j / $appCols)
 
-            # Position relative to PanelBackground (X=18, Y=104)
-            $cellStartX = 18 + $padX + ($col * $cellW)
-            $cellCenterX = $cellStartX + [Math]::Floor($cellW / 2)
-            $iconX = $cellCenterX - 20
-            $iconY = 104 + $padY + ($row * $cellH)
-            $labelY = $iconY + 44
+            $relIconX = $padX + ($col * $cellW) + [Math]::Floor($cellW / 2) - 20
+            $relCenterX = $padX + ($col * $cellW) + [Math]::Floor($cellW / 2)
+            $relIconY = $padY + ($row * $cellH)
+            $relLabelY = $relIconY + 44
 
             $appName = Escape-Ini ([string]$app.name)
             $iconName = [string]$app.icon
@@ -332,22 +331,23 @@ function Write-Launcher($Data) {
             $folderLines.Add("Meter=Image")
             $folderLines.Add("Group=PanelContent")
             $folderLines.Add("ImageName=#@#Icons\$iconName")
-            $folderLines.Add("X=$iconX")
-            $folderLines.Add("Y=$iconY")
-            $folderLines.Add("W=40")
-            $folderLines.Add("H=40")
+            $folderLines.Add("X=((#PanelX# + $relIconX) * #IsOpen#)")
+            $folderLines.Add("Y=((#PanelY# + $relIconY) * #IsOpen#)")
+            $folderLines.Add("W=(40 * #IsOpen#)")
+            $folderLines.Add("H=(40 * #IsOpen#)")
             $folderLines.Add("PreserveAspectRatio=1")
+            $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
-            $folderLines.Add('LeftMouseUpAction=["' + $path + '"]')
+            $folderLines.Add('LeftMouseUpAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
 
             $folderLines.Add("[AppLabel_${j}]")
             $folderLines.Add("Meter=String")
             $folderLines.Add("Group=PanelContent")
-            $folderLines.Add("X=$cellCenterX")
-            $folderLines.Add("Y=$labelY")
-            $folderLines.Add("W=$($cellW - 6)")
-            $folderLines.Add("H=32")
+            $folderLines.Add("X=((#PanelX# + $relCenterX) * #IsOpen#)")
+            $folderLines.Add("Y=((#PanelY# + $relLabelY) * #IsOpen#)")
+            $folderLines.Add("W=(($cellW - 6) * #IsOpen#)")
+            $folderLines.Add("H=(32 * #IsOpen#)")
             $folderLines.Add("Text=$appName")
             $folderLines.Add("FontFace=Segoe UI")
             $folderLines.Add("FontSize=9")
@@ -358,8 +358,9 @@ function Write-Launcher($Data) {
             $folderLines.Add("FontEffectColor=0,0,0,220")
             $folderLines.Add("ClipString=2")
             $folderLines.Add("AntiAlias=1")
+            $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
-            $folderLines.Add('LeftMouseUpAction=["' + $path + '"]')
+            $folderLines.Add('LeftMouseUpAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
         }
         [IO.File]::WriteAllLines((Join-Path $folderDir "Folder.ini"), $folderLines, $utf8)
