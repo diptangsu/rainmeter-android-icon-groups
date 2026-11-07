@@ -4,23 +4,26 @@ X=32
 Y=18
 Shape=Rectangle 0,0,48,48,12 | Fill Color 38,44,58,235 | StrokeWidth 1.5 | Stroke Color 255,255,255,40
 DynamicVariables=1
-LeftMouseUpAction=[!ShowMeterGroup PanelContent][!Redraw]
+LeftMouseUpAction=[!ToggleMeterGroup PanelContent][!Redraw]
 
 [FolderLabel]
 Meter=String
 X=56
-Y=70
-W=96
-H=26
+Y=68
+W=78
+H=32
 Text=#FolderName#
 FontFace=Segoe UI
-FontSize=10
-FontColor=245,247,255,255
+FontSize=9
+FontWeight=400
+FontColor=255,255,255,255
 StringAlign=Center
-ClipString=1
+StringEffect=Border
+FontEffectColor=0,0,0,220
+ClipString=2
 AntiAlias=1
 DynamicVariables=1
-LeftMouseUpAction=[!ShowMeterGroup PanelContent][!Redraw]
+LeftMouseUpAction=[!ToggleMeterGroup PanelContent][!Redraw]
 
 [PanelBackground]
 Meter=Shape
