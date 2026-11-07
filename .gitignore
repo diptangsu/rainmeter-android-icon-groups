@@ -8,6 +8,7 @@ Folders/*/Folder.ini
 # Extracted application icons
 @Resources/Icons/app_*.png
 !@Resources/Icons/app_default.png
+@Resources/Icons/custom_*.png
 
 # Windows artifacts
 Thumbs.db

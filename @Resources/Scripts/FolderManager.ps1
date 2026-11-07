@@ -288,6 +288,7 @@ function Write-Launcher($Data) {
             $folderLines.Add("Y=($py + #IconOffsetY#)")
             $folderLines.Add("W=16")
             $folderLines.Add("H=16")
+            $folderLines.Add("ImageAlpha=235")
             $folderLines.Add("PreserveAspectRatio=1")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]')

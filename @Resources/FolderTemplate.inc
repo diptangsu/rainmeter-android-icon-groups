@@ -15,13 +15,36 @@ IconOffsetY=0
 Measure=Script
 ScriptFile=#@#Scripts\FolderPopup.lua
 
+; --- UNIFIED LIQUID GLASS FOLDER SQUIRCLE (48x48) ---
 [FolderIcon]
 Meter=Shape
 X=(32 + #IconOffsetX#)
 Y=(18 + #IconOffsetY#)
-Shape=Rectangle 0,0,48,48,12 | Fill Color 38,44,58,235 | StrokeWidth 1.5 | Stroke Color 255,255,255,40
+; Layer 1: Full-body translucent glass gradient + outer specular rim
+Shape=Rectangle 0,0,48,48,13 | Fill LinearGradient UnifiedGlass | StrokeWidth 1.2 | Stroke LinearGradient UnifiedRim
+; Layer 2: Full-body inner refraction border (no top-bar split)
+Shape2=Rectangle 1,1,46,46,12 | Fill Color 0,0,0,0 | StrokeWidth 1 | Stroke LinearGradient UnifiedInnerGlow
+UnifiedGlass=135 | 55,68,94,170 ; 0.0 | 34,42,60,150 ; 0.5 | 20,25,38,180 ; 1.0
+UnifiedRim=135 | 255,255,255,180 ; 0.0 | 255,255,255,40 ; 0.5 | 140,180,255,85 ; 1.0
+UnifiedInnerGlow=135 | 255,255,255,65 ; 0.0 | 255,255,255,0 ; 0.6
 DynamicVariables=1
 LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]
+
+; --- UNIFIED LIQUID GLASS POPUP PANEL ---
+[PanelBackground]
+Meter=Shape
+Group=PanelContent
+X=(#PanelX# * #IsOpen#)
+Y=(#PanelY# * #IsOpen#)
+; Layer 1: Exact same full-body glass gradient + outer specular rim
+Shape=Rectangle 0,0,(#PanelWidth# * #IsOpen#),(#PanelHeight# * #IsOpen#),14 | Fill LinearGradient UnifiedGlass | StrokeWidth (#IsOpen# * 1.2) | Stroke LinearGradient UnifiedRim
+; Layer 2: Exact same full-body inner refraction border
+Shape2=Rectangle 1,1,((#PanelWidth# - 2) * #IsOpen#),((#PanelHeight# - 2) * #IsOpen#),13 | Fill Color 0,0,0,0 | StrokeWidth (#IsOpen#) | Stroke LinearGradient UnifiedInnerGlow
+UnifiedGlass=135 | 55,68,94,170 ; 0.0 | 34,42,60,150 ; 0.5 | 20,25,38,180 ; 1.0
+UnifiedRim=135 | 255,255,255,180 ; 0.0 | 255,255,255,40 ; 0.5 | 140,180,255,85 ; 1.0
+UnifiedInnerGlow=135 | 255,255,255,65 ; 0.0 | 255,255,255,0 ; 0.6
+Hidden=1
+DynamicVariables=1
 
 [FolderLabel]
 Meter=String
@@ -41,15 +64,6 @@ ClipString=2
 AntiAlias=1
 DynamicVariables=1
 LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]
-
-[PanelBackground]
-Meter=Shape
-Group=PanelContent
-X=(#PanelX# * #IsOpen#)
-Y=(#PanelY# * #IsOpen#)
-Shape=Rectangle 0,0,(#PanelWidth# * #IsOpen#),(#PanelHeight# * #IsOpen#),8 | Fill Color 29,33,44,250 | StrokeWidth (#IsOpen#) | Stroke Color 50,58,78,255
-Hidden=1
-DynamicVariables=1
 
 [PanelTitle]
 Meter=String
