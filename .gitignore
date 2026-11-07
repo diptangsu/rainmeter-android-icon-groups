@@ -1,0 +1,16 @@
+# Local folder configuration and runtime state
+@Resources/Data.json
+@Resources/FolderState.txt
+
+# Generated folder skins
+Folders/*/Folder.ini
+
+# Extracted application icons
+@Resources/Icons/app_*.png
+!@Resources/Icons/app_default.png
+
+# Windows artifacts
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/

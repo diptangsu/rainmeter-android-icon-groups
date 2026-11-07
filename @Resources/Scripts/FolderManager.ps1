@@ -5,6 +5,16 @@ param(
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class IconExtractor {
+    [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+    public static extern uint ExtractIconEx(string szFileName, int nIconIndex, IntPtr[] phiconLarge, IntPtr[] phiconSmall, uint nIcons);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool DestroyIcon(IntPtr hIcon);
+}
+"@ -ErrorAction SilentlyContinue
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -87,15 +97,45 @@ function Save-Data($Data) {
 
 function Extract-Icon([string]$Path, [string]$Destination) {
     $candidate = $Path
+    $iconIndex = 0
     try {
-        if ([IO.Path]::GetExtension($Path).ToLowerInvariant() -eq ".lnk") {
+        $ext = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+        if ($ext -eq ".lnk") {
             $shell = New-Object -ComObject WScript.Shell
             $shortcut = $shell.CreateShortcut($Path)
             if ($shortcut.IconLocation) {
-                $iconPath = ($shortcut.IconLocation -split ',')[0].Trim('"')
-                if (Test-Path $iconPath) { $candidate = $iconPath }
-            } elseif (Test-Path $shortcut.TargetPath) { $candidate = $shortcut.TargetPath }
+                $parts = $shortcut.IconLocation -split ','
+                $iconPath = $parts[0].Trim('"').Trim()
+                if ($parts.Count -gt 1) { [void][int]::TryParse($parts[1].Trim(), [ref]$iconIndex) }
+                if ($iconPath -and (Test-Path $iconPath)) { $candidate = $iconPath }
+                elseif ($shortcut.TargetPath -and (Test-Path $shortcut.TargetPath)) { $candidate = $shortcut.TargetPath; $iconIndex = 0 }
+            } elseif ($shortcut.TargetPath -and (Test-Path $shortcut.TargetPath)) {
+                $candidate = $shortcut.TargetPath
+            }
+        } elseif ($ext -eq ".url") {
+            foreach ($line in (Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)) {
+                if ($line -match '^IconFile=(.+)$') {
+                    $iconPath = $matches[1].Trim('"').Trim()
+                    if (Test-Path $iconPath) { $candidate = $iconPath }
+                } elseif ($line -match '^IconIndex=(-?\d+)$') {
+                    $iconIndex = [int]$matches[1]
+                }
+            }
         }
+
+        $large = New-Object IntPtr[] 1
+        $small = New-Object IntPtr[] 1
+        $extracted = [IconExtractor]::ExtractIconEx($candidate, $iconIndex, $large, $small, 1)
+        if ($extracted -gt 0 -and $large[0] -ne [IntPtr]::Zero) {
+            $ico = [Drawing.Icon]::FromHandle($large[0])
+            $bmp = $ico.ToBitmap()
+            $bmp.Save($Destination, [Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose()
+            [void][IconExtractor]::DestroyIcon($large[0])
+            if ($small[0] -ne [IntPtr]::Zero) { [void][IconExtractor]::DestroyIcon($small[0]) }
+            return
+        }
+
         $ico = [Drawing.Icon]::ExtractAssociatedIcon($candidate)
         if (!$ico) { $ico = [Drawing.SystemIcons]::Application }
         $bmp = $ico.ToBitmap()
@@ -464,7 +504,15 @@ switch ($Action) {
         }
     }
     "ResetLayout" { }
-    "Initialize" { }
+    "Initialize" {
+        foreach ($f in @($data.folders)) {
+            foreach ($s in @($f.shortcuts)) {
+                if ($s.icon -like "app_*" -and (Test-Path $s.path)) {
+                    Extract-Icon $s.path (Join-Path $IconDir $s.icon)
+                }
+            }
+        }
+    }
 }
 
 if ($Action -eq "LoadFolders") {
