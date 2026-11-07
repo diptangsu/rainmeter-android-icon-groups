@@ -1,11 +1,8 @@
 [FolderIcon]
-Meter=Image
-ImageName=#@#Icons\folder.png
+Meter=Shape
 X=32
 Y=18
-W=48
-H=48
-PreserveAspectRatio=1
+Shape=Rectangle 0,0,48,48,12 | Fill Color 38,44,58,235 | StrokeWidth 1.5 | Stroke Color 255,255,255,40
 DynamicVariables=1
 LeftMouseUpAction=[!ShowMeterGroup PanelContent][!Redraw]
 

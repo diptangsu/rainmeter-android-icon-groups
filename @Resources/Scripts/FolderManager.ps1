@@ -228,6 +228,32 @@ function Write-Launcher($Data) {
         $folderLines.Add("FolderPath=#CURRENTCONFIGDIR#")
         $folderLines.Add("")
 
+        # --- NEW: 2x2 Android Mini-Icon Folder Preview ---
+        $previewCount = [Math]::Min(4, $apps.Count)
+        for ($p=0; $p -lt $previewCount; $p++) {
+            $pApp = $apps[$p]
+            $pCol = $p % 2
+            $pRow = [Math]::Floor($p / 2)
+            # Inside FolderIcon (X=32, Y=18, W=48, H=48):
+            # 6px padding + 16px icon + 4px gap + 16px icon + 6px padding = 48px
+            $px = 32 + 6 + ($pCol * 20)
+            $py = 18 + 6 + ($pRow * 20)
+            $pIcon = [string]$pApp.icon
+            if (!$pIcon -or !(Test-Path (Join-Path $IconDir $pIcon))) { $pIcon = "app_default.png" }
+
+            $folderLines.Add("[FolderPreview_${p}]")
+            $folderLines.Add("Meter=Image")
+            $folderLines.Add("ImageName=#@#Icons\$pIcon")
+            $folderLines.Add("X=$px")
+            $folderLines.Add("Y=$py")
+            $folderLines.Add("W=16")
+            $folderLines.Add("H=16")
+            $folderLines.Add("PreserveAspectRatio=1")
+            $folderLines.Add("DynamicVariables=1")
+            $folderLines.Add("LeftMouseUpAction=[!ShowMeterGroup PanelContent][!Redraw]")
+            $folderLines.Add("")
+        }
+
         if ($apps.Count -eq 0) {
             $folderLines.Add("[PanelEmpty]")
             $folderLines.Add("Meter=String")
