@@ -34,8 +34,8 @@ panel for managing the contents.
    If Rainmeter uses another skins directory, copy it there instead.
 3. Open **Rainmeter Manage**, click **Refresh all**, and load
    `AndroidIconGroups\Settings.ini`.
-4. Click **Refresh / Initialize** to create the default configuration and
-   generated folder skins.
+4. Click **Open folder browser** to create folders and shortcuts in the
+   unified settings window.
 5. Load `AndroidIconGroups\Launcher.ini`.
 6. Position each generated folder where desired. Rainmeter remembers the
    location of each folder skin independently.

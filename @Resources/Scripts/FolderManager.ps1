@@ -1,6 +1,9 @@
 param(
-    [ValidateSet("Initialize","LoadFolders","AddFolder","RenameFolder","DeleteFolder","AddShortcut","RemoveShortcut","SetCustomIcon","ResetLayout")]
-    [string]$Action = "Initialize"
+    [ValidateSet("Initialize","LoadFolders","Manage","AddFolder","RenameFolder","DeleteFolder","AddShortcut","RemoveShortcut","SetCustomIcon","ReorderShortcut","ResetLayout")]
+    [string]$Action = "Initialize",
+    [string]$FolderId = "",
+    [int]$FromIndex = -1,
+    [int]$ToIndex = -1
 )
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -13,8 +16,18 @@ public class IconExtractor {
     public static extern uint ExtractIconEx(string szFileName, int nIconIndex, IntPtr[] phiconLarge, IntPtr[] phiconSmall, uint nIcons);
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool DestroyIcon(IntPtr hIcon);
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 }
 "@ -ErrorAction SilentlyContinue
+
+# Hide the black console window while allowing Windows Forms GUI windows to display normally
+$consoleHwnd = [IconExtractor]::GetConsoleWindow()
+if ($consoleHwnd -ne [IntPtr]::Zero) {
+    [void][IconExtractor]::ShowWindow($consoleHwnd, 0)
+}
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -74,6 +87,412 @@ function Select-Item([string]$Title, [string[]]$Items) {
     $value = if ($result -eq "OK") { [string]$combo.SelectedItem } else { $null }
     $form.Dispose()
     return $value
+}
+
+function Show-FolderManager([ref]$Data) {
+    $form = New-Object Windows.Forms.Form
+    $form.Text = "Android Launcher Settings"
+    $form.ClientSize = New-Object Drawing.Size(880, 540)
+    $form.MinimumSize = New-Object Drawing.Size(800, 480)
+    $form.AutoScaleMode = "Dpi"
+    $form.StartPosition = "CenterScreen"
+    $form.TopMost = $true
+    $form.Font = New-Object Drawing.Font("Segoe UI", 9.5)
+    $form.BackColor = [Drawing.Color]::FromArgb(245, 246, 248)
+
+    # --- LEFT SIDEBAR (Pure Dock Layout + 14px Inner Padding) ---
+    $sidebar = New-Object Windows.Forms.Panel
+    $sidebar.Dock = "Left"
+    $sidebar.Width = 230
+    $sidebar.Padding = New-Object Windows.Forms.Padding(14, 14, 14, 16)
+    $sidebar.BackColor = [Drawing.Color]::FromArgb(232, 235, 242)
+
+    $sidebarTop = New-Object Windows.Forms.Panel
+    $sidebarTop.Dock = "Top"
+    $sidebarTop.Height = 152
+
+    $sidebarTitle = New-Object Windows.Forms.Label
+    $sidebarTitle.Text = "FOLDERS"
+    $sidebarTitle.Location = New-Object Drawing.Point(0, 0)
+    $sidebarTitle.Size = New-Object Drawing.Size(202, 20)
+    $sidebarTitle.Font = New-Object Drawing.Font("Segoe UI", 9, [Drawing.FontStyle]::Bold)
+    $sidebarTitle.ForeColor = [Drawing.Color]::FromArgb(95, 105, 125)
+
+    $allFoldersBtn = New-Object Windows.Forms.Button
+    $allFoldersBtn.Text = "All Folders (Overview)"
+    $allFoldersBtn.Location = New-Object Drawing.Point(0, 24)
+    $allFoldersBtn.Size = New-Object Drawing.Size(202, 30)
+    $allFoldersBtn.FlatStyle = "Flat"
+    $allFoldersBtn.BackColor = [Drawing.Color]::FromArgb(215, 222, 235)
+    $allFoldersBtn.FlatAppearance.BorderSize = 0
+
+    $newFolderLabel = New-Object Windows.Forms.Label
+    $newFolderLabel.Text = "Create New Folder:"
+    $newFolderLabel.Location = New-Object Drawing.Point(0, 62)
+    $newFolderLabel.Size = New-Object Drawing.Size(202, 18)
+    $newFolderLabel.ForeColor = [Drawing.Color]::FromArgb(80, 90, 110)
+
+    $newFolderName = New-Object Windows.Forms.TextBox
+    $newFolderName.Location = New-Object Drawing.Point(0, 82)
+    $newFolderName.Size = New-Object Drawing.Size(202, 25)
+
+    $newFolderButton = New-Object Windows.Forms.Button
+    $newFolderButton.Text = "+ Create Folder"
+    $newFolderButton.Location = New-Object Drawing.Point(0, 112)
+    $newFolderButton.Size = New-Object Drawing.Size(202, 32)
+    $newFolderButton.FlatStyle = "Flat"
+    $newFolderButton.BackColor = [Drawing.Color]::FromArgb(83, 125, 205)
+    $newFolderButton.ForeColor = [Drawing.Color]::White
+    $newFolderButton.FlatAppearance.BorderSize = 0
+
+    $sidebarTop.Controls.AddRange(@($sidebarTitle, $allFoldersBtn, $newFolderLabel, $newFolderName, $newFolderButton))
+
+    $folderList = New-Object Windows.Forms.ListBox
+    $folderList.Dock = "Fill"
+    $folderList.IntegralHeight = $false
+    $folderList.BorderStyle = "FixedSingle"
+    $folderList.BackColor = [Drawing.Color]::White
+    $folderList.Font = New-Object Drawing.Font("Segoe UI", 10)
+
+    # In WinForms, Dock="Fill" is added first so it fills the remaining space below Dock="Top"
+    $sidebar.Controls.Add($folderList)
+    $sidebar.Controls.Add($sidebarTop)
+
+    # --- RIGHT MAIN PANEL (Pure Dock Layout + 20px Inner Padding) ---
+    $main = New-Object Windows.Forms.Panel
+    $main.Dock = "Fill"
+    $main.Padding = New-Object Windows.Forms.Padding(20, 14, 20, 14)
+
+    $mainTop = New-Object Windows.Forms.Panel
+    $mainTop.Dock = "Top"
+    $mainTop.Height = 114
+
+    $breadcrumb = New-Object Windows.Forms.Label
+    $breadcrumb.Location = New-Object Drawing.Point(0, 0)
+    $breadcrumb.Size = New-Object Drawing.Size(600, 28)
+    $breadcrumb.Text = "All Folders"
+    $breadcrumb.Font = New-Object Drawing.Font("Segoe UI", 13, [Drawing.FontStyle]::Bold)
+
+    $backButton = New-Object Windows.Forms.Button
+    $backButton.Text = "< Back"; $backButton.Location = New-Object Drawing.Point(0, 36); $backButton.Size = New-Object Drawing.Size(70, 32)
+
+    $addShortcutButton = New-Object Windows.Forms.Button
+    $addShortcutButton.Text = "+ Add Shortcut(s)"; $addShortcutButton.Location = New-Object Drawing.Point(78, 36); $addShortcutButton.Size = New-Object Drawing.Size(130, 32)
+
+    $customIconButton = New-Object Windows.Forms.Button
+    $customIconButton.Text = "Change Icon"; $customIconButton.Location = New-Object Drawing.Point(216, 36); $customIconButton.Size = New-Object Drawing.Size(102, 32)
+
+    $removeButton = New-Object Windows.Forms.Button
+    $removeButton.Text = "Remove Shortcut"; $removeButton.Location = New-Object Drawing.Point(326, 36); $removeButton.Size = New-Object Drawing.Size(126, 32)
+
+    $deleteFolderButton = New-Object Windows.Forms.Button
+    $deleteFolderButton.Text = "Delete Folder"; $deleteFolderButton.Location = New-Object Drawing.Point(460, 36); $deleteFolderButton.Size = New-Object Drawing.Point(110, 32)
+
+    $renameLabel = New-Object Windows.Forms.Label
+    $renameLabel.Text = "Name:"; $renameLabel.Location = New-Object Drawing.Point(0, 81); $renameLabel.Size = New-Object Drawing.Size(48, 22)
+
+    $renameBox = New-Object Windows.Forms.TextBox
+    $renameBox.Location = New-Object Drawing.Point(52, 78); $renameBox.Size = New-Object Drawing.Size(240, 25)
+
+    $renameButton = New-Object Windows.Forms.Button
+    $renameButton.Text = "Save Name"; $renameButton.Location = New-Object Drawing.Point(300, 76); $renameButton.Size = New-Object Drawing.Size(96, 28)
+
+    $mainTop.Controls.AddRange(@(
+        $breadcrumb, $backButton, $addShortcutButton, $customIconButton,
+        $removeButton, $deleteFolderButton, $renameLabel, $renameBox, $renameButton
+    ))
+
+    $statusLabel = New-Object Windows.Forms.Label
+    $statusLabel.Dock = "Bottom"
+    $statusLabel.Height = 26
+    $statusLabel.TextAlign = "BottomLeft"
+    $statusLabel.ForeColor = [Drawing.Color]::FromArgb(100, 110, 130)
+    $statusLabel.Text = "Double-click a folder to view its shortcuts, or select a folder on the left."
+
+    $grid = New-Object Windows.Forms.ListView
+    $grid.Dock = "Fill"
+    $grid.View = "LargeIcon"
+    $grid.LargeImageList = New-Object Windows.Forms.ImageList
+    $grid.LargeImageList.ImageSize = New-Object Drawing.Size(48, 48)
+    $grid.LargeImageList.ColorDepth = "Depth32Bit"
+    $grid.BorderStyle = "FixedSingle"
+    $grid.BackColor = [Drawing.Color]::White
+    $grid.MultiSelect = $false
+
+    # Add Dock="Fill" first, then Bottom and Top so WinForms docks them in the exact inner rectangle
+    $main.Controls.Add($grid)
+    $main.Controls.Add($statusLabel)
+    $main.Controls.Add($mainTop)
+
+    $form.Controls.Add($main)
+    $form.Controls.Add($sidebar)
+
+    $script:selectedFolderId = $null
+    $script:suppressListEvent = $false
+
+    function script:Load-UnlockedImage([string]$Path) {
+        $bytes = [IO.File]::ReadAllBytes($Path)
+        $ms = New-Object IO.MemoryStream(,$bytes)
+        return [Drawing.Image]::FromStream($ms)
+    }
+
+    function script:Commit-ManagerChanges {
+        Save-Data $Data.Value
+        Write-Launcher $Data.Value
+        Refresh-Skin
+    }
+
+    function Refresh-UI {
+        $script:suppressListEvent = $true
+        $folderList.BeginUpdate()
+        $folderList.Items.Clear()
+        $selIdx = -1
+        $foldersArr = @($Data.Value.folders)
+        for ($i = 0; $i -lt $foldersArr.Count; $i++) {
+            [void]$folderList.Items.Add([string]$foldersArr[$i].name)
+            if ([string]$foldersArr[$i].id -eq $script:selectedFolderId) { $selIdx = $i }
+        }
+        if ($selIdx -ge 0) { $folderList.SelectedIndex = $selIdx }
+        $folderList.EndUpdate()
+        $script:suppressListEvent = $false
+
+        $grid.BeginUpdate()
+        $grid.Items.Clear()
+        $grid.LargeImageList.Images.Clear()
+
+        $folderIconPath = Join-Path $IconDir "folder.png"
+        if (!(Test-Path $folderIconPath)) { $folderIconPath = Join-Path $IconDir "app_default.png" }
+        if (Test-Path $folderIconPath) {
+            $grid.LargeImageList.Images.Add("folder", (Load-UnlockedImage $folderIconPath))
+        }
+
+        if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
+            $breadcrumb.Text = "All Folders"
+            $backButton.Enabled = $false
+            $addShortcutButton.Enabled = $false
+            $customIconButton.Enabled = $false
+            $removeButton.Enabled = $false
+            $deleteFolderButton.Enabled = $false
+            $renameBox.Text = ""
+            $renameBox.Enabled = $false
+            $renameButton.Enabled = $false
+
+            foreach ($f in $foldersArr) {
+                $item = New-Object Windows.Forms.ListViewItem([string]$f.name)
+                $item.Tag = [string]$f.id
+                $item.ImageKey = "folder"
+                [void]$grid.Items.Add($item)
+            }
+        } else {
+            $folder = @($foldersArr | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+            if ($null -eq $folder) {
+                $script:selectedFolderId = $null
+                $grid.EndUpdate()
+                Refresh-UI
+                return
+            }
+            $breadcrumb.Text = "All Folders  >  " + [string]$folder.name
+            $backButton.Enabled = $true
+            $addShortcutButton.Enabled = $true
+            $customIconButton.Enabled = $false
+            $removeButton.Enabled = $false
+            $deleteFolderButton.Enabled = $true
+            $renameBox.Enabled = $true
+            $renameButton.Enabled = $true
+            $renameBox.Text = [string]$folder.name
+
+            foreach ($s in @($folder.shortcuts)) {
+                $iconName = [string]$s.icon
+                $iconPath = Join-Path $IconDir $iconName
+                if (!$iconName -or !(Test-Path $iconPath)) { $iconPath = Join-Path $IconDir "app_default.png" }
+                $imgKey = "app_" + [string]$s.id
+                if ((Test-Path $iconPath) -and !$grid.LargeImageList.Images.ContainsKey($imgKey)) {
+                    try { $grid.LargeImageList.Images.Add($imgKey, (Load-UnlockedImage $iconPath)) } catch {}
+                }
+                $item = New-Object Windows.Forms.ListViewItem([string]$s.name)
+                $item.Tag = [string]$s.id
+                $item.ImageKey = $imgKey
+                [void]$grid.Items.Add($item)
+            }
+        }
+        $grid.EndUpdate()
+    }
+
+    $allFoldersBtn.Add_Click({
+        $script:selectedFolderId = $null
+        $folderList.ClearSelected()
+        Refresh-UI
+    })
+
+    $backButton.Add_Click({
+        $script:selectedFolderId = $null
+        $folderList.ClearSelected()
+        Refresh-UI
+    })
+
+    $folderList.Add_SelectedIndexChanged({
+        if ($script:suppressListEvent -or $folderList.SelectedIndex -lt 0) { return }
+        $foldersArr = @($Data.Value.folders)
+        $script:selectedFolderId = [string]$foldersArr[$folderList.SelectedIndex].id
+        Refresh-UI
+    })
+
+    $grid.Add_SelectedIndexChanged({
+        if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
+            if ($grid.SelectedItems.Count -gt 0) {
+                $renameBox.Enabled = $true
+                $renameButton.Enabled = $true
+                $deleteFolderButton.Enabled = $true
+                $renameBox.Text = $grid.SelectedItems[0].Text
+            }
+            return
+        }
+        $hasSel = ($grid.SelectedItems.Count -gt 0)
+        $customIconButton.Enabled = $hasSel
+        $removeButton.Enabled = $hasSel
+        if ($hasSel) {
+            $renameBox.Text = $grid.SelectedItems[0].Text
+        } else {
+            $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+            if ($folder) { $renameBox.Text = [string]$folder.name }
+        }
+    })
+
+    $grid.Add_DoubleClick({
+        if ($grid.SelectedItems.Count -eq 0) { return }
+        if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
+            $script:selectedFolderId = [string]$grid.SelectedItems[0].Tag
+            Refresh-UI
+        } else {
+            $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+            $shortcut = @($folder.shortcuts | Where-Object { [string]$_.id -eq [string]$grid.SelectedItems[0].Tag })[0]
+            if ($shortcut -and (Test-Path ([string]$shortcut.path))) { Start-Process ([string]$shortcut.path) }
+        }
+    })
+
+    $newFolderButton.Add_Click({
+        $name = $newFolderName.Text.Trim()
+        if (!$name) { $statusLabel.Text = "Type a new folder name in the sidebar box first."; $newFolderName.Focus(); return }
+        if (@($Data.Value.folders | Where-Object { [string]$_.name -eq $name }).Count -gt 0) {
+            $statusLabel.Text = "A folder named '$name' already exists."; return
+        }
+        $newId = "f_" + [Guid]::NewGuid().ToString("N").Substring(0,8)
+        $newObj = [pscustomobject]@{ id = $newId; name = $name; shortcuts = @() }
+        $Data.Value.folders = @($Data.Value.folders) + @($newObj)
+        $newFolderName.Text = ""
+        $script:selectedFolderId = $newId
+        Commit-ManagerChanges
+        Refresh-UI
+        $statusLabel.Text = "Created folder '$name'."
+    })
+
+    $newFolderName.Add_KeyDown({
+        if ($_.KeyCode -eq "Enter") {
+            $newFolderButton.PerformClick()
+            $_.SuppressKeyPress = $true
+        }
+    })
+
+    $addShortcutButton.Add_Click({
+        if ([string]::IsNullOrEmpty($script:selectedFolderId)) { return }
+        $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+        if (!$folder) { return }
+        $dialog = New-Object Windows.Forms.OpenFileDialog
+        $dialog.Title = "Select Application(s), Shortcut(s), or File(s)"
+        $dialog.Filter = "All files (*.*)|*.*"
+        $dialog.DereferenceLinks = $false
+        $dialog.Multiselect = $true
+        if ($dialog.ShowDialog() -ne "OK") { return }
+        foreach ($path in @($dialog.FileNames)) {
+            $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
+            $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
+            Extract-Icon $path (Join-Path $IconDir $iconFile)
+            $newApp = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $defaultName; path = $path; icon = $iconFile }
+            $folder.shortcuts = @($folder.shortcuts) + @($newApp)
+        }
+        Commit-ManagerChanges
+        Refresh-UI
+        $statusLabel.Text = "Added shortcut(s) to '$($folder.name)'."
+    })
+
+    $renameButton.Add_Click({
+        $newName = $renameBox.Text.Trim()
+        if (!$newName) { return }
+        if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
+            if ($grid.SelectedItems.Count -gt 0) {
+                $fId = [string]$grid.SelectedItems[0].Tag
+                $f = @($Data.Value.folders | Where-Object { [string]$_.id -eq $fId })[0]
+                if ($f) { $f.name = $newName; Commit-ManagerChanges; Refresh-UI; $statusLabel.Text = "Renamed folder to '$newName'." }
+            }
+            return
+        }
+        $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+        if (!$folder) { return }
+        if ($grid.SelectedItems.Count -gt 0) {
+            $appId = [string]$grid.SelectedItems[0].Tag
+            $app = @($folder.shortcuts | Where-Object { [string]$_.id -eq $appId })[0]
+            if ($app) { $app.name = $newName; Commit-ManagerChanges; Refresh-UI; $statusLabel.Text = "Renamed shortcut to '$newName'." }
+        } else {
+            $folder.name = $newName
+            Commit-ManagerChanges
+            Refresh-UI
+            $statusLabel.Text = "Renamed folder to '$newName'."
+        }
+    })
+
+    $customIconButton.Add_Click({
+        if ([string]::IsNullOrEmpty($script:selectedFolderId) -or $grid.SelectedItems.Count -eq 0) { return }
+        $appId = [string]$grid.SelectedItems[0].Tag
+        $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+        $app = @($folder.shortcuts | Where-Object { [string]$_.id -eq $appId })[0]
+        if (!$app) { return }
+        $dlg = New-Object Windows.Forms.OpenFileDialog
+        $dlg.Title = "Choose Custom Icon"
+        $dlg.Filter = "Images (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp"
+        if ($dlg.ShowDialog() -eq "OK") {
+            $customName = "custom_" + [Guid]::NewGuid().ToString("N") + ".png"
+            $img = Load-UnlockedImage $dlg.FileName
+            $bmp = New-Object Drawing.Bitmap($img)
+            $bmp.Save((Join-Path $IconDir $customName), [Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose(); $img.Dispose()
+            $app.icon = $customName
+            Commit-ManagerChanges
+            Refresh-UI
+            $statusLabel.Text = "Updated icon for '$($app.name)'."
+        }
+    })
+
+    $removeButton.Add_Click({
+        if ([string]::IsNullOrEmpty($script:selectedFolderId) -or $grid.SelectedItems.Count -eq 0) { return }
+        $appId = [string]$grid.SelectedItems[0].Tag
+        $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+        $folder.shortcuts = @($folder.shortcuts | Where-Object { [string]$_.id -ne $appId })
+        Commit-ManagerChanges
+        Refresh-UI
+        $statusLabel.Text = "Removed shortcut."
+    })
+
+    $deleteFolderButton.Add_Click({
+        $targetId = $script:selectedFolderId
+        if ([string]::IsNullOrEmpty($targetId) -and $grid.SelectedItems.Count -gt 0) {
+            $targetId = [string]$grid.SelectedItems[0].Tag
+        }
+        if ([string]::IsNullOrEmpty($targetId)) { return }
+        $Data.Value.folders = @($Data.Value.folders | Where-Object { [string]$_.id -ne $targetId })
+        $script:selectedFolderId = $null
+        Commit-ManagerChanges
+        Refresh-UI
+        $statusLabel.Text = "Deleted folder."
+    })
+
+    Refresh-UI
+    $form.Add_Shown({
+        $form.TopMost = $true
+        $form.Activate()
+        $form.BringToFront()
+    })
+    [void]$form.ShowDialog()
+    $form.Dispose()
 }
 
 function Load-Data {
@@ -412,7 +831,8 @@ function Get-Folder($Data) {
 
 $data = Load-Data
 switch ($Action) {
-    "LoadFolders" { Sync-FolderSkins }
+    "LoadFolders" { Sync-FolderSkins; exit 0 }
+    "Manage" { Show-FolderManager ([ref]$data); exit 0 }
     "AddFolder" {
         $name = Show-TextPrompt "Create folder" "Enter a folder name:"
         if ($name) {
