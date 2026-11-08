@@ -34,7 +34,6 @@ $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Resource = Join-Path $Root "@Resources"
 $DataFile = Join-Path $Resource "Data.json"
 $IconDir = Join-Path $Resource "Icons"
-$LauncherFile = Join-Path $Root "Launcher.ini"
 $FolderRoot = Join-Path $Root "Folders"
 $FolderTemplate = Join-Path $Resource "FolderTemplate.inc"
 $RainmeterExe = Join-Path $env:ProgramFiles "Rainmeter\Rainmeter.exe"
@@ -810,34 +809,6 @@ function Write-Launcher($Data) {
         New-Item -ItemType Directory -Path $FolderRoot | Out-Null
     }
 
-    $launcher = New-Object System.Collections.Generic.List[string]
-    $launcher.Add("[Rainmeter]")
-    $launcher.Add("Update=-1")
-    $launcher.Add("AccurateText=1")
-    $powershellExe = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $launcher.Add("OnRefreshAction=[`"$powershellExe`" -NoProfile -STA -ExecutionPolicy Bypass -File #CURRENTPATH#@Resources\Scripts\FolderManager.ps1 -Action LoadFolders]")
-    $launcher.Add("")
-    $launcher.Add("[Metadata]")
-    $launcher.Add("Name=Android Desktop Launcher")
-    $launcher.Add("Author=Custom")
-    $launcher.Add("Information=Folder skin launcher")
-    $launcher.Add("Version=2.1")
-    $launcher.Add("")
-    $launcher.Add("[FolderLoader]")
-    $launcher.Add("Measure=Script")
-    $launcher.Add("ScriptFile=#@#Scripts\LoadFolders.lua")
-    $launcher.Add("DynamicVariables=1")
-    $launcher.Add("")
-    $launcher.Add("[Startup]")
-    $launcher.Add("Meter=String")
-    $launcher.Add("Text=")
-    $launcher.Add("X=0")
-    $launcher.Add("Y=0")
-    $launcher.Add("W=1")
-    $launcher.Add("H=1")
-    $launcher.Add("Hidden=1")
-    $launcher.Add("")
-
     for ($i=0; $i -lt $folders.Count; $i++) {
         $folder = $folders[$i]
         $folderId = [string]$folder.id
@@ -986,7 +957,6 @@ function Write-Launcher($Data) {
         }
         [IO.File]::WriteAllLines((Join-Path $folderDir "Folder.ini"), $folderLines, $utf8)
     }
-    [IO.File]::WriteAllLines($LauncherFile, $launcher, $utf8)
 }
 
 function Refresh-Skin {
