@@ -216,8 +216,72 @@ function Show-FolderManager([ref]$Data) {
     $grid.LargeImageList.ImageSize = New-Object Drawing.Size(48, 48)
     $grid.LargeImageList.ColorDepth = "Depth32Bit"
     $grid.BorderStyle = "FixedSingle"
-    $grid.BackColor = [Drawing.Color]::White
+    $grid.BackColor = $bgPanel
+    $grid.ForeColor = $fgWhite
     $grid.MultiSelect = $false
+    $grid.AllowDrop = $true
+
+    # --- DRAG & DROP REORDERING INSIDE SETTINGS GRID ---
+    $grid.Add_ItemDrag({
+        param($sender, $e)
+        if (![string]::IsNullOrEmpty($script:selectedFolderId)) {
+            $grid.DoDragDrop($e.Item, [Windows.Forms.DragDropEffects]::Move)
+        }
+    })
+
+    $grid.Add_DragEnter({
+        param($sender, $e)
+        if ($e.Data.GetDataPresent([Windows.Forms.ListViewItem])) {
+            $e.Effect = [Windows.Forms.DragDropEffects]::Move
+        } else {
+            $e.Effect = [Windows.Forms.DragDropEffects]::None
+        }
+    })
+
+    $grid.Add_DragDrop({
+        param($sender, $e)
+        if ([string]::IsNullOrEmpty($script:selectedFolderId)) { return }
+        $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+        if (!$folder) { return }
+
+        $pt = $grid.PointToClient((New-Object Drawing.Point($e.X, $e.Y)))
+        $targetItem = $grid.GetItemAt($pt.X, $pt.Y)
+
+        $draggedItem = $e.Data.GetData([Windows.Forms.ListViewItem])
+        if ($null -eq $draggedItem) { return }
+
+        $fromId = [string]$draggedItem.Tag
+        $shortcutsArr = @($folder.shortcuts)
+
+        $fromIdx = -1
+        for ($i = 0; $i -lt $shortcutsArr.Count; $i++) {
+            if ([string]$shortcutsArr[$i].id -eq $fromId) { $fromIdx = $i; break }
+        }
+        if ($fromIdx -lt 0) { return }
+
+        $toIdx = $shortcutsArr.Count - 1
+        if ($null -ne $targetItem) {
+            $toId = [string]$targetItem.Tag
+            for ($i = 0; $i -lt $shortcutsArr.Count; $i++) {
+                if ([string]$shortcutsArr[$i].id -eq $toId) { $toIdx = $i; break }
+            }
+        }
+
+        if ($fromIdx -ne $toIdx -and $fromIdx -ge 0 -and $toIdx -ge 0) {
+            $list = New-Object System.Collections.ArrayList
+            foreach ($s in $shortcutsArr) { [void]$list.Add($s) }
+            $item = $list[$fromIdx]
+            $list.RemoveAt($fromIdx)
+            $list.Insert($toIdx, $item)
+            $folder.shortcuts = @($list)
+
+            script:Commit-ManagerChanges
+            script:Refresh-UI
+            $grid.Invalidate()
+            $grid.Refresh()
+            $statusLabel.Text = "Rearranged shortcuts successfully."
+        }
+    })
 
     # Add Dock="Fill" first, then Bottom and Top so WinForms docks them in the exact inner rectangle
     $main.Controls.Add($grid)
@@ -489,12 +553,30 @@ function Show-FolderManager([ref]$Data) {
         $statusLabel.Text = "Deleted folder."
     })
 
-    # --- ENABLE DRAG & DROP FOR SHORTCUTS ---
+    # --- UNIFIED DRAG & DROP (REORDER SHORTCUTS + DROP FILES FROM EXPLORER) ---
     $form.AllowDrop = $true
     $grid.AllowDrop = $true
     $folderList.AllowDrop = $true
 
-    $dragEnterHandler = {
+    $grid.Add_ItemDrag({
+        param($sender, $e)
+        if (![string]::IsNullOrEmpty($script:selectedFolderId)) {
+            [void]$grid.DoDragDrop($e.Item, [Windows.Forms.DragDropEffects]::Move)
+        }
+    })
+
+    $gridDragEnterHandler = {
+        param($sender, $e)
+        if ($e.Data.GetDataPresent([Windows.Forms.ListViewItem])) {
+            $e.Effect = [Windows.Forms.DragDropEffects]::Move
+        } elseif ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+            $e.Effect = [Windows.Forms.DragDropEffects]::Copy
+        } else {
+            $e.Effect = [Windows.Forms.DragDropEffects]::None
+        }
+    }
+
+    $fileDragEnterHandler = {
         param($sender, $e)
         if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
             $e.Effect = [Windows.Forms.DragDropEffects]::Copy
@@ -505,30 +587,66 @@ function Show-FolderManager([ref]$Data) {
 
     $gridDragDropHandler = {
         param($sender, $e)
-        if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
-            $paths = $e.Data.GetData([Windows.Forms.DataFormats]::FileDrop)
-            $targetFolderId = $script:selectedFolderId
-            if ([string]::IsNullOrEmpty($targetFolderId)) {
-                $statusLabel.Text = "Please open or select a folder on the left before dropping shortcuts."
-                return
+        if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
+            $statusLabel.Text = "Please open or select a folder on the left first."
+            return
+        }
+        $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+        if (!$folder) { return }
+
+        # Case 1: Reordering an existing shortcut inside the grid
+        if ($e.Data.GetDataPresent([Windows.Forms.ListViewItem])) {
+            $pt = $grid.PointToClient((New-Object Drawing.Point($e.X, $e.Y)))
+            $targetItem = $grid.GetItemAt($pt.X, $pt.Y)
+            $draggedItem = $e.Data.GetData([Windows.Forms.ListViewItem])
+            if ($null -eq $draggedItem) { return }
+
+            $fromId = [string]$draggedItem.Tag
+            $shortcutsArr = @($folder.shortcuts)
+            $fromIdx = -1
+            for ($i = 0; $i -lt $shortcutsArr.Count; $i++) {
+                if ([string]$shortcutsArr[$i].id -eq $fromId) { $fromIdx = $i; break }
             }
-            $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $targetFolderId })[0]
-            if ($folder) {
-                foreach ($path in $paths) {
-                    if (Test-Path $path) {
-                        $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
-                        $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
-                        Extract-Icon $path (Join-Path $IconDir $iconFile)
-                        $newApp = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $defaultName; path = $path; icon = $iconFile }
-                        $folder.shortcuts = @($folder.shortcuts) + @($newApp)
-                    }
+            if ($fromIdx -lt 0) { return }
+
+            $toIdx = $shortcutsArr.Count - 1
+            if ($null -ne $targetItem) {
+                $toId = [string]$targetItem.Tag
+                for ($i = 0; $i -lt $shortcutsArr.Count; $i++) {
+                    if ([string]$shortcutsArr[$i].id -eq $toId) { $toIdx = $i; break }
                 }
+            }
+
+            if ($fromIdx -ne $toIdx -and $fromIdx -ge 0 -and $toIdx -ge 0) {
+                $list = New-Object System.Collections.ArrayList
+                foreach ($s in $shortcutsArr) { [void]$list.Add($s) }
+                $item = $list[$fromIdx]
+                $list.RemoveAt($fromIdx)
+                $list.Insert($toIdx, $item)
+                $folder.shortcuts = @($list)
+
                 script:Commit-ManagerChanges
                 script:Refresh-UI
-                $grid.Invalidate()
-                $grid.Refresh()
-                $statusLabel.Text = "Successfully added dropped shortcut(s) to '$($folder.name)'."
+                $statusLabel.Text = "Rearranged shortcuts in '$($folder.name)'."
             }
+            return
+        }
+
+        # Case 2: Dropping external files/shortcuts from Windows Explorer
+        if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+            $paths = $e.Data.GetData([Windows.Forms.DataFormats]::FileDrop)
+            foreach ($path in $paths) {
+                if (Test-Path $path) {
+                    $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
+                    $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
+                    Extract-Icon $path (Join-Path $IconDir $iconFile)
+                    $newApp = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $defaultName; path = $path; icon = $iconFile }
+                    $folder.shortcuts = @($folder.shortcuts) + @($newApp)
+                }
+            }
+            script:Commit-ManagerChanges
+            script:Refresh-UI
+            $statusLabel.Text = "Added dropped shortcut(s) to '$($folder.name)'."
         }
     }
 
@@ -553,17 +671,15 @@ function Show-FolderManager([ref]$Data) {
                     }
                     script:Commit-ManagerChanges
                     script:Refresh-UI
-                    $statusLabel.Text = "Successfully added dropped shortcut(s) to '$($folder.name)'."
+                    $statusLabel.Text = "Added dropped shortcut(s) to '$($folder.name)'."
                 }
-            } else {
-                $statusLabel.Text = "Drop files directly onto a specific folder in the sidebar."
             }
         }
     }
 
-    $form.Add_DragEnter($dragEnterHandler)
-    $grid.Add_DragEnter($dragEnterHandler)
-    $folderList.Add_DragEnter($dragEnterHandler)
+    $form.Add_DragEnter($fileDragEnterHandler)
+    $folderList.Add_DragEnter($fileDragEnterHandler)
+    $grid.Add_DragEnter($gridDragEnterHandler)
 
     $grid.Add_DragDrop($gridDragDropHandler)
     $folderList.Add_DragDrop($folderListDragDropHandler)
@@ -841,7 +957,8 @@ function Write-Launcher($Data) {
             $folderLines.Add("PreserveAspectRatio=1")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
-            $folderLines.Add('LeftMouseUpAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
+            $folderLines.Add("MouseActionCursorName=HAND")
+            $folderLines.Add('LeftMouseDoubleClickAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
 
             $folderLines.Add("[AppLabel_${j}]")
@@ -863,7 +980,8 @@ function Write-Launcher($Data) {
             $folderLines.Add("AntiAlias=1")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
-            $folderLines.Add('LeftMouseUpAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
+            $folderLines.Add("MouseActionCursorName=HAND")
+            $folderLines.Add('LeftMouseDoubleClickAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
         }
         [IO.File]::WriteAllLines((Join-Path $folderDir "Folder.ini"), $folderLines, $utf8)
