@@ -242,7 +242,7 @@ function Show-FolderManager([ref]$Data) {
         Refresh-Skin
     }
 
-    function Refresh-UI {
+    function script:Refresh-UI {
         $script:suppressListEvent = $true
         $folderList.BeginUpdate()
         $folderList.Items.Clear()
@@ -254,7 +254,6 @@ function Show-FolderManager([ref]$Data) {
         }
         if ($selIdx -ge 0) { $folderList.SelectedIndex = $selIdx }
         $folderList.EndUpdate()
-        $script:suppressListEvent = $false
 
         $grid.BeginUpdate()
         $grid.Items.Clear()
@@ -316,6 +315,11 @@ function Show-FolderManager([ref]$Data) {
             }
         }
         $grid.EndUpdate()
+
+        # Force immediate UI repaint
+        $grid.Invalidate()
+        $grid.Refresh()
+        $script:suppressListEvent = $false
     }
 
     $allFoldersBtn.Add_Click({
@@ -484,6 +488,85 @@ function Show-FolderManager([ref]$Data) {
         Refresh-UI
         $statusLabel.Text = "Deleted folder."
     })
+
+    # --- ENABLE DRAG & DROP FOR SHORTCUTS ---
+    $form.AllowDrop = $true
+    $grid.AllowDrop = $true
+    $folderList.AllowDrop = $true
+
+    $dragEnterHandler = {
+        param($sender, $e)
+        if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+            $e.Effect = [Windows.Forms.DragDropEffects]::Copy
+        } else {
+            $e.Effect = [Windows.Forms.DragDropEffects]::None
+        }
+    }
+
+    $gridDragDropHandler = {
+        param($sender, $e)
+        if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+            $paths = $e.Data.GetData([Windows.Forms.DataFormats]::FileDrop)
+            $targetFolderId = $script:selectedFolderId
+            if ([string]::IsNullOrEmpty($targetFolderId)) {
+                $statusLabel.Text = "Please open or select a folder on the left before dropping shortcuts."
+                return
+            }
+            $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $targetFolderId })[0]
+            if ($folder) {
+                foreach ($path in $paths) {
+                    if (Test-Path $path) {
+                        $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
+                        $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
+                        Extract-Icon $path (Join-Path $IconDir $iconFile)
+                        $newApp = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $defaultName; path = $path; icon = $iconFile }
+                        $folder.shortcuts = @($folder.shortcuts) + @($newApp)
+                    }
+                }
+                script:Commit-ManagerChanges
+                script:Refresh-UI
+                $grid.Invalidate()
+                $grid.Refresh()
+                $statusLabel.Text = "Successfully added dropped shortcut(s) to '$($folder.name)'."
+            }
+        }
+    }
+
+    $folderListDragDropHandler = {
+        param($sender, $e)
+        if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+            $paths = $e.Data.GetData([Windows.Forms.DataFormats]::FileDrop)
+            $pt = $folderList.PointToClient((New-Object Drawing.Point($e.X, $e.Y)))
+            $index = $folderList.IndexFromPoint($pt)
+            if ($index -ge 0) {
+                $foldersArr = @($Data.Value.folders)
+                $folder = $foldersArr[$index]
+                if ($folder) {
+                    foreach ($path in $paths) {
+                        if (Test-Path $path) {
+                            $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
+                            $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
+                            Extract-Icon $path (Join-Path $IconDir $iconFile)
+                            $newApp = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $defaultName; path = $path; icon = $iconFile }
+                            $folder.shortcuts = @($folder.shortcuts) + @($newApp)
+                        }
+                    }
+                    script:Commit-ManagerChanges
+                    script:Refresh-UI
+                    $statusLabel.Text = "Successfully added dropped shortcut(s) to '$($folder.name)'."
+                }
+            } else {
+                $statusLabel.Text = "Drop files directly onto a specific folder in the sidebar."
+            }
+        }
+    }
+
+    $form.Add_DragEnter($dragEnterHandler)
+    $grid.Add_DragEnter($dragEnterHandler)
+    $folderList.Add_DragEnter($dragEnterHandler)
+
+    $grid.Add_DragDrop($gridDragDropHandler)
+    $folderList.Add_DragDrop($folderListDragDropHandler)
 
     Refresh-UI
     $form.Add_Shown({
