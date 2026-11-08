@@ -1,9 +1,11 @@
 param(
-    [ValidateSet("Initialize","LoadFolders","Manage","AddFolder","RenameFolder","DeleteFolder","AddShortcut","RemoveShortcut","SetCustomIcon","ReorderShortcut","ResetLayout")]
+    [ValidateSet("Initialize","LoadFolders","Manage","AddFolder","RenameFolder","DeleteFolder","AddShortcut","RemoveShortcut","SetCustomIcon","ReorderShortcut","SetAnimation","ResetLayout")]
     [string]$Action = "Initialize",
     [string]$FolderId = "",
     [int]$FromIndex = -1,
-    [int]$ToIndex = -1
+    [int]$ToIndex = -1,
+    [ValidateSet("ExpandCollapse","ElasticBounce","Slide","Fade","None")]
+    [string]$AnimStyle = "ExpandCollapse"
 )
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -196,9 +198,21 @@ function Show-FolderManager([ref]$Data) {
     $renameButton = New-Object Windows.Forms.Button
     $renameButton.Text = "Save Name"; $renameButton.Location = New-Object Drawing.Point(300, 76); $renameButton.Size = New-Object Drawing.Size(96, 28)
 
+    $animLabel = New-Object Windows.Forms.Label
+    $animLabel.Text = "Animation:"; $animLabel.Location = New-Object Drawing.Point(412, 81); $animLabel.Size = New-Object Drawing.Size(68, 22)
+
+    $animCombo = New-Object Windows.Forms.ComboBox
+    $animCombo.Location = New-Object Drawing.Point(482, 77); $animCombo.Size = New-Object Drawing.Size(135, 25)
+    $animCombo.DropDownStyle = "DropDownList"
+    [void]$animCombo.Items.AddRange(@("ExpandCollapse", "ElasticBounce", "Slide", "Fade", "None"))
+    $curAnim = if ($Data.Value.animation) { [string]$Data.Value.animation } else { "ExpandCollapse" }
+    $animIdx = $animCombo.Items.IndexOf($curAnim)
+    $animCombo.SelectedIndex = if ($animIdx -ge 0) { $animIdx } else { 0 }
+
     $mainTop.Controls.AddRange(@(
         $breadcrumb, $backButton, $addShortcutButton, $customIconButton,
-        $removeButton, $deleteFolderButton, $renameLabel, $renameBox, $renameButton
+        $removeButton, $deleteFolderButton, $renameLabel, $renameBox, $renameButton,
+        $animLabel, $animCombo
     ))
 
     $statusLabel = New-Object Windows.Forms.Label
@@ -507,6 +521,15 @@ function Show-FolderManager([ref]$Data) {
         }
     })
 
+    $animCombo.Add_SelectedIndexChanged({
+        $chosenAnim = [string]$animCombo.SelectedItem
+        if ($chosenAnim -and $Data.Value.animation -ne $chosenAnim) {
+            $Data.Value.animation = $chosenAnim
+            script:Commit-ManagerChanges
+            $statusLabel.Text = "Updated folder animation to '$chosenAnim'."
+        }
+    })
+
     $customIconButton.Add_Click({
         if ([string]::IsNullOrEmpty($script:selectedFolderId) -or $grid.SelectedItems.Count -eq 0) { return }
         $appId = [string]$grid.SelectedItems[0].Tag
@@ -695,14 +718,20 @@ function Show-FolderManager([ref]$Data) {
 
 function Load-Data {
     if (!(Test-Path $DataFile)) {
-        $starter = @{ folders = @(
-            @{ id="f_work"; name="Work"; shortcuts=@() },
-            @{ id="f_games"; name="Games"; shortcuts=@() }
-        )}
+        $starter = @{
+            animation = "ExpandCollapse"
+            folders = @(
+                @{ id="f_work"; name="Work"; shortcuts=@() },
+                @{ id="f_games"; name="Games"; shortcuts=@() }
+            )
+        }
         $starter | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $DataFile -Encoding UTF8
     }
     $data = Get-Content -LiteralPath $DataFile -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($null -eq $data.folders) { $data = @{ folders=@() } }
+    if ($null -eq $data.folders) { $data = [pscustomobject]@{ animation="ExpandCollapse"; folders=@() } }
+    if (!$data.PSObject.Properties['animation'] -or [string]::IsNullOrWhiteSpace($data.animation)) {
+        $data | Add-Member -NotePropertyName "animation" -NotePropertyValue "ExpandCollapse" -Force
+    }
     return $data
 }
 
@@ -802,12 +831,27 @@ function Write-Launcher($Data) {
     if (!(Test-Path $FolderTemplate)) {
         throw "Missing shared folder template: $FolderTemplate"
     }
-    if (Test-Path $FolderRoot) {
-        Get-ChildItem -LiteralPath $FolderRoot -Directory |
-            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
-    } else {
+    if (!(Test-Path $FolderRoot)) {
         New-Item -ItemType Directory -Path $FolderRoot | Out-Null
     }
+
+    # Remember existing WindowX / WindowY positions before regenerating Folder.ini files
+    $existingPos = @{}
+    Get-ChildItem -LiteralPath $FolderRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $iniFile = Join-Path $_.FullName "Folder.ini"
+        if (Test-Path $iniFile) {
+            $rawIni = Get-Content -LiteralPath $iniFile -Raw -Encoding UTF8
+            $wx = $null; $wy = $null
+            if ($rawIni -match '(?m)^WindowX=(-?\d+)') { $wx = $matches[1] }
+            if ($rawIni -match '(?m)^WindowY=(-?\d+)') { $wy = $matches[1] }
+            if ($null -ne $wx -and $null -ne $wy) {
+                $existingPos[$_.Name] = @{ X = $wx; Y = $wy }
+            }
+        }
+        Remove-Item -LiteralPath $_.FullName -Recurse -Force
+    }
+
+    $animMode = if ($Data.animation) { [string]$Data.animation } else { "ExpandCollapse" }
 
     for ($i=0; $i -lt $folders.Count; $i++) {
         $folder = $folders[$i]
@@ -821,12 +865,18 @@ function Write-Launcher($Data) {
             $suffix++
         }
         New-Item -ItemType Directory -Path $folderDir | Out-Null
-        $x = 36 + (($i % 5) * 124)
-        $y = 18 + ([Math]::Floor($i / 5) * 100)
+
+        if ($existingPos.ContainsKey($folderName)) {
+            $x = $existingPos[$folderName].X
+            $y = $existingPos[$folderName].Y
+        } else {
+            $x = 36 + (($i % 5) * 124)
+            $y = 18 + ([Math]::Floor($i / 5) * 100)
+        }
 
         $folderLines = New-Object System.Collections.Generic.List[string]
         $folderLines.Add("[Rainmeter]")
-        $folderLines.Add("Update=1000")
+        $folderLines.Add("Update=16")
         $folderLines.Add("AccurateText=1")
         $folderLines.Add("DynamicWindowSize=1")
         $folderLines.Add("Draggable=1")
@@ -839,7 +889,7 @@ function Write-Launcher($Data) {
         $folderLines.Add("[Metadata]")
         $folderLines.Add("Name=$(Escape-Ini ([string]$folder.name)) Folder")
         $folderLines.Add("Author=Custom")
-        $folderLines.Add("Version=2.1")
+        $folderLines.Add("Version=3.0")
         $folderLines.Add("")
         $folderLines.Add("[Variables]")
         $folderLines.Add("FolderID=$folderId")
@@ -857,6 +907,9 @@ function Write-Launcher($Data) {
         $folderLines.Add("")
 
         $folderLines.Add("@Include=#@#FolderTemplate.inc")
+        $folderLines.Add("")
+        $folderLines.Add("[Variables]")
+        $folderLines.Add("AnimStyle=$animMode")
         $folderLines.Add("")
 
         # 2x2 Mini-Icon Folder Preview
@@ -880,6 +933,7 @@ function Write-Launcher($Data) {
             $folderLines.Add("ImageAlpha=235")
             $folderLines.Add("PreserveAspectRatio=1")
             $folderLines.Add("DynamicVariables=1")
+            $folderLines.Add("MouseActionCursorName=HAND")
             $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]')
             $folderLines.Add("")
         }
@@ -888,14 +942,14 @@ function Write-Launcher($Data) {
             $folderLines.Add("[PanelEmpty]")
             $folderLines.Add("Meter=String")
             $folderLines.Add("Group=PanelContent")
-            $folderLines.Add("X=((#PanelX# + 16) * #IsOpen#)")
-            $folderLines.Add("Y=((#PanelY# + 50) * #IsOpen#)")
-            $folderLines.Add("W=(($panelW - 32) * #IsOpen#)")
-            $folderLines.Add("H=(24 * #IsOpen#)")
+            $folderLines.Add("X=((#PanelX# + #AnimShiftX# + (16 * #AnimScale#)) * #IsOpen#)")
+            $folderLines.Add("Y=((#PanelY# + #AnimShiftY# + (50 * #AnimScale#)) * #IsOpen#)")
+            $folderLines.Add("W=(($panelW - 32) * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("H=(24 * #AnimScale# * #IsOpen#)")
             $folderLines.Add("Text=No shortcuts yet.")
             $folderLines.Add("FontFace=Segoe UI")
             $folderLines.Add("FontSize=10")
-            $folderLines.Add("FontColor=175,185,205,255")
+            $folderLines.Add("FontColor=175,185,205,#AnimAlpha#")
             $folderLines.Add("AntiAlias=1")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
@@ -921,37 +975,40 @@ function Write-Launcher($Data) {
             $folderLines.Add("Meter=Image")
             $folderLines.Add("Group=PanelContent")
             $folderLines.Add("ImageName=#@#Icons\$iconName")
-            $folderLines.Add("X=((#PanelX# + $relIconX) * #IsOpen#)")
-            $folderLines.Add("Y=((#PanelY# + $relIconY) * #IsOpen#)")
-            $folderLines.Add("W=(40 * #IsOpen#)")
-            $folderLines.Add("H=(40 * #IsOpen#)")
+            $folderLines.Add("X=((#PanelX# + #AnimShiftX# + ($relIconX * #AnimScale#)) * #IsOpen#)")
+            $folderLines.Add("Y=((#PanelY# + #AnimShiftY# + ($relIconY * #AnimScale#)) * #IsOpen#)")
+            $folderLines.Add("W=(40 * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("H=(40 * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("ImageAlpha=#AnimAlpha#")
             $folderLines.Add("PreserveAspectRatio=1")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
             $folderLines.Add("MouseActionCursorName=HAND")
+            $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "SelectApp(' + $j + ')"]')
             $folderLines.Add('LeftMouseDoubleClickAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
 
             $folderLines.Add("[AppLabel_${j}]")
             $folderLines.Add("Meter=String")
             $folderLines.Add("Group=PanelContent")
-            $folderLines.Add("X=((#PanelX# + $relCenterX) * #IsOpen#)")
-            $folderLines.Add("Y=((#PanelY# + $relLabelY) * #IsOpen#)")
-            $folderLines.Add("W=(($cellW - 6) * #IsOpen#)")
-            $folderLines.Add("H=(32 * #IsOpen#)")
+            $folderLines.Add("X=((#PanelX# + #AnimShiftX# + ($relCenterX * #AnimScale#)) * #IsOpen#)")
+            $folderLines.Add("Y=((#PanelY# + #AnimShiftY# + ($relLabelY * #AnimScale#)) * #IsOpen#)")
+            $folderLines.Add("W=(($cellW - 6) * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("H=(32 * #AnimScale# * #IsOpen#)")
             $folderLines.Add("Text=$appName")
             $folderLines.Add("FontFace=Segoe UI")
             $folderLines.Add("FontSize=9")
             $folderLines.Add("FontWeight=400")
-            $folderLines.Add("FontColor=255,255,255,255")
+            $folderLines.Add("FontColor=255,255,255,#AnimAlpha#")
             $folderLines.Add("StringAlign=Center")
             $folderLines.Add("StringEffect=Border")
-            $folderLines.Add("FontEffectColor=0,0,0,220")
+            $folderLines.Add("FontEffectColor=0,0,0,(Round(220 * #AnimAlpha# / 255))")
             $folderLines.Add("ClipString=2")
             $folderLines.Add("AntiAlias=1")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
             $folderLines.Add("MouseActionCursorName=HAND")
+            $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "SelectApp(' + $j + ')"]')
             $folderLines.Add('LeftMouseDoubleClickAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
         }
@@ -1095,6 +1152,13 @@ switch ($Action) {
                 }
             }
         }
+    }
+    "SetAnimation" {
+        $data.animation = $AnimStyle
+        Save-Data $data
+        Write-Launcher $data
+        Refresh-Skin
+        exit 0
     }
     "ResetLayout" { }
     "Initialize" {
