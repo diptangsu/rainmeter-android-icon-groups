@@ -20,20 +20,25 @@ function RestoreIcon(idx)
     if idx == nil or idx < 0 then return end
     local col = idx % 4
     local row = math.floor(idx / 4)
-    local cellW = 104
-    local cellH = 98
-    local padX = 16
-    local padY = 48
+
+    -- Auto-detect whether this Folder.ini uses 104x98 (PanelWidth 448) or 84x76 (PanelWidth 364)
+    local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
+    local cellW = (panelW >= 440) and 104 or 84
+    local cellH = (panelW >= 440) and 98 or 76
+    local padX  = (panelW >= 440) and 16 or 14
+    local padY  = 48
+    local labelOffset = (panelW >= 440) and 45 or 44
 
     local relIconX = padX + (col * cellW) + math.floor(cellW / 2) - 20
     local relIconY = padY + (row * cellH)
-    local relLabelY = relIconY + 45
+    local relLabelY = relIconY + labelOffset
 
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'X', '((#PanelX# + #AnimShiftX# + (' .. relIconX .. ' * #AnimScale#)) * #IsOpen#)')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'Y', '((#PanelY# + #AnimShiftY# + (' .. relIconY .. ' * #AnimScale#)) * #IsOpen#)')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'W', '(40 * #AnimScale# * #IsOpen#)')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'H', '(40 * #AnimScale# * #IsOpen#)')
-    SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'Y', '((#PanelY# + #AnimShiftY# + (' .. relLabelY .. ' * #AnimScale#)) * #IsOpen#)')
+    -- Use [#Var] syntax so Rainmeter does NOT bake #AnimScale#=1 at the moment !SetOption runs
+    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'X', '(([#PanelX] + [#AnimShiftX] + (' .. relIconX .. ' * [#AnimScale])) * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. relIconY .. ' * [#AnimScale])) * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'W', '(40 * [#AnimScale] * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'H', '(40 * [#AnimScale] * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. relLabelY .. ' * [#AnimScale])) * [#IsOpen])')
     SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'FontWeight', '400')
     SKIN:Bang('!UpdateMeter', 'AppIcon_' .. idx)
     SKIN:Bang('!UpdateMeter', 'AppLabel_' .. idx)
@@ -56,32 +61,33 @@ function SelectApp(idx)
     local panelY = tonumber(SKIN:GetVariable('PanelY')) or 104
     local col = idx % 4
     local row = math.floor(idx / 4)
-    local cellW = 104
-    local cellH = 98
-    local padX = 16
-    local padY = 48
 
-    -- Expand clicked icon from 40x40 to 46x46 (-3px offset to keep centered)
+    local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
+    local cellW = (panelW >= 440) and 104 or 84
+    local cellH = (panelW >= 440) and 98 or 76
+    local padX  = (panelW >= 440) and 16 or 14
+    local padY  = 48
+
     local baseIconX = padX + (col * cellW) + math.floor(cellW / 2) - 20
     local baseIconY = padY + (row * cellH)
     local expIconX = baseIconX - 3
     local expIconY = baseIconY - 3
     local expLabelY = baseIconY + 48
 
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'X', '((#PanelX# + #AnimShiftX# + (' .. expIconX .. ' * #AnimScale#)) * #IsOpen#)')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'Y', '((#PanelY# + #AnimShiftY# + (' .. expIconY .. ' * #AnimScale#)) * #IsOpen#)')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'W', '(46 * #AnimScale# * #IsOpen#)')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'H', '(46 * #AnimScale# * #IsOpen#)')
-    SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'Y', '((#PanelY# + #AnimShiftY# + (' .. expLabelY .. ' * #AnimScale#)) * #IsOpen#)')
+    -- Use [#Var] syntax so the expanded icon still scales from the folder origin if animated
+    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'X', '(([#PanelX] + [#AnimShiftX] + (' .. expIconX .. ' * [#AnimScale])) * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. expIconY .. ' * [#AnimScale])) * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'W', '(46 * [#AnimScale] * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'H', '(46 * [#AnimScale] * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. expLabelY .. ' * [#AnimScale])) * [#IsOpen])')
     SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'FontWeight', '600')
     SKIN:Bang('!UpdateMeter', 'AppIcon_' .. idx)
     SKIN:Bang('!UpdateMeter', 'AppLabel_' .. idx)
 
-    -- Dynamically size selection highlight height for 1-line, 2-line, or 3-line labels
     local labelMeter = SKIN:GetMeter('AppLabel_' .. idx)
-    local selW = cellW - 6 -- 98px wide
-    local selH = 88        -- default 2-line height
-    if labelMeter then
+    local selW = cellW - 6
+    local selH = (panelW >= 440) and 88 or 72
+    if labelMeter and panelW >= 440 then
         local textVal = labelMeter:GetOption('Text') or ''
         local textLen = string.len(textVal)
         if textLen <= 13 then
@@ -93,13 +99,13 @@ function SelectApp(idx)
         end
     end
 
-    local boxX = panelX + padX + (col * cellW) + 3
-    local boxY = panelY + baseIconY - 6
+    local relBoxX = padX + (col * cellW) + 3
+    local relBoxY = baseIconY - 6
 
     SKIN:Bang('!SetVariable', 'SelW', selW)
     SKIN:Bang('!SetVariable', 'SelH', selH)
-    SKIN:Bang('!SetOption', 'SelectionHighlight', 'X', boxX)
-    SKIN:Bang('!SetOption', 'SelectionHighlight', 'Y', boxY)
+    SKIN:Bang('!SetOption', 'SelectionHighlight', 'X', '(([#PanelX] + [#AnimShiftX] + (' .. relBoxX .. ' * [#AnimScale])) * [#IsOpen])')
+    SKIN:Bang('!SetOption', 'SelectionHighlight', 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. relBoxY .. ' * [#AnimScale])) * [#IsOpen])')
     SKIN:Bang('!ShowMeter', 'SelectionHighlight')
     SKIN:Bang('!UpdateMeter', 'SelectionHighlight')
     SKIN:Bang('!Redraw')
