@@ -8,6 +8,8 @@ AnimScale=1
 AnimAlpha=255
 AnimShiftX=0
 AnimShiftY=0
+SelW=96
+SelH=84
 OrigX=0
 OrigY=0
 PanelX=18
@@ -74,7 +76,7 @@ Meter=Shape
 Group=PanelContent
 X=0
 Y=0
-Shape=Rectangle 0,0,(76 * #AnimScale#),(72 * #AnimScale#),(10 * #AnimScale#) | Fill Color 130,175,255,(Round(28 * #AnimAlpha# / 255)) | StrokeWidth 1.2 | Stroke Color 140,190,255,(Round(135 * #AnimAlpha# / 255))
+Shape=Rectangle 0,0,(#SelW# * #AnimScale#),(#SelH# * #AnimScale#),(10 * #AnimScale#) | Fill Color 130,175,255,(Round(32 * #AnimAlpha# / 255)) | StrokeWidth 1.2 | Stroke Color 140,190,255,(Round(155 * #AnimAlpha# / 255))
 Hidden=1
 DynamicVariables=1
 

@@ -20,9 +20,14 @@ function RestoreIcon(idx)
     if idx == nil or idx < 0 then return end
     local col = idx % 4
     local row = math.floor(idx / 4)
-    local relIconX = 14 + (col * 84) + 22
-    local relIconY = 48 + (row * 76)
-    local relLabelY = relIconY + 44
+    local cellW = 104
+    local cellH = 98
+    local padX = 16
+    local padY = 48
+
+    local relIconX = padX + (col * cellW) + math.floor(cellW / 2) - 20
+    local relIconY = padY + (row * cellH)
+    local relLabelY = relIconY + 45
 
     SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'X', '((#PanelX# + #AnimShiftX# + (' .. relIconX .. ' * #AnimScale#)) * #IsOpen#)')
     SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'Y', '((#PanelY# + #AnimShiftY# + (' .. relIconY .. ' * #AnimScale#)) * #IsOpen#)')
@@ -51,10 +56,17 @@ function SelectApp(idx)
     local panelY = tonumber(SKIN:GetVariable('PanelY')) or 104
     local col = idx % 4
     local row = math.floor(idx / 4)
+    local cellW = 104
+    local cellH = 98
+    local padX = 16
+    local padY = 48
 
-    local expIconX = 14 + (col * 84) + 22 - 3
-    local expIconY = 48 + (row * 76) - 3
-    local expLabelY = 48 + (row * 76) + 46
+    -- Expand clicked icon from 40x40 to 46x46 (-3px offset to keep centered)
+    local baseIconX = padX + (col * cellW) + math.floor(cellW / 2) - 20
+    local baseIconY = padY + (row * cellH)
+    local expIconX = baseIconX - 3
+    local expIconY = baseIconY - 3
+    local expLabelY = baseIconY + 48
 
     SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'X', '((#PanelX# + #AnimShiftX# + (' .. expIconX .. ' * #AnimScale#)) * #IsOpen#)')
     SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'Y', '((#PanelY# + #AnimShiftY# + (' .. expIconY .. ' * #AnimScale#)) * #IsOpen#)')
@@ -62,15 +74,33 @@ function SelectApp(idx)
     SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'H', '(46 * #AnimScale# * #IsOpen#)')
     SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'Y', '((#PanelY# + #AnimShiftY# + (' .. expLabelY .. ' * #AnimScale#)) * #IsOpen#)')
     SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'FontWeight', '600')
+    SKIN:Bang('!UpdateMeter', 'AppIcon_' .. idx)
+    SKIN:Bang('!UpdateMeter', 'AppLabel_' .. idx)
 
-    local boxX = panelX + 14 + (col * 84) + 4
-    local boxY = panelY + 48 + (row * 76) - 4
+    -- Dynamically size selection highlight height for 1-line, 2-line, or 3-line labels
+    local labelMeter = SKIN:GetMeter('AppLabel_' .. idx)
+    local selW = cellW - 6 -- 98px wide
+    local selH = 88        -- default 2-line height
+    if labelMeter then
+        local textVal = labelMeter:GetOption('Text') or ''
+        local textLen = string.len(textVal)
+        if textLen <= 13 then
+            selH = 74
+        elseif textLen <= 26 then
+            selH = 88
+        else
+            selH = 96
+        end
+    end
 
+    local boxX = panelX + padX + (col * cellW) + 3
+    local boxY = panelY + baseIconY - 6
+
+    SKIN:Bang('!SetVariable', 'SelW', selW)
+    SKIN:Bang('!SetVariable', 'SelH', selH)
     SKIN:Bang('!SetOption', 'SelectionHighlight', 'X', boxX)
     SKIN:Bang('!SetOption', 'SelectionHighlight', 'Y', boxY)
     SKIN:Bang('!ShowMeter', 'SelectionHighlight')
-    SKIN:Bang('!UpdateMeter', 'AppIcon_' .. idx)
-    SKIN:Bang('!UpdateMeter', 'AppLabel_' .. idx)
     SKIN:Bang('!UpdateMeter', 'SelectionHighlight')
     SKIN:Bang('!Redraw')
 end

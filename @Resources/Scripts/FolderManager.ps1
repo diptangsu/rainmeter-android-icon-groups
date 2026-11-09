@@ -525,9 +525,12 @@ function Show-FolderManager([ref]$Data) {
     })
 
     $animCombo.Add_SelectedIndexChanged({
-        if ($script:suppressListEvent) { return }
+        if ($script:suppressListEvent -or $script:suppressAnimEvent) { return }
         $chosenAnim = [string]$animCombo.SelectedItem
         if (!$chosenAnim) { return }
+
+        $currentAnim = if ($Data.Value.PSObject.Properties['animation']) { [string]$Data.Value.animation } else { "" }
+        if ($currentAnim -eq $chosenAnim) { return }
 
         if ($Data.Value.PSObject.Properties['animation']) {
             $Data.Value.animation = $chosenAnim
@@ -537,20 +540,6 @@ function Show-FolderManager([ref]$Data) {
 
         script:Commit-ManagerChanges
         $statusLabel.Text = "Applied '$chosenAnim' animation to all folders."
-    })
-
-    $animCombo.Add_SelectedIndexChanged({
-        if ($script:suppressAnimEvent) { return }
-        $chosenAnim = [string]$animCombo.SelectedItem
-        if ($chosenAnim) {
-            if ($Data.Value.PSObject.Properties['animation']) {
-                $Data.Value.animation = $chosenAnim
-            } else {
-                $Data.Value | Add-Member -NotePropertyName "animation" -NotePropertyValue $chosenAnim -Force
-            }
-            script:Commit-ManagerChanges
-            $statusLabel.Text = "Folder animation changed to '$chosenAnim'."
-        }
     })
 
     $customIconButton.Add_Click({
@@ -932,10 +921,10 @@ function Write-Launcher($Data) {
 
         $apps = @($folder.shortcuts)
         $appCols = 4
-        $cellW = 84; $cellH = 76; $padX = 14; $padY = 48
+        $cellW = 104; $cellH = 98; $padX = 16; $padY = 48
         $rows = [Math]::Max(1,[Math]::Ceiling([Math]::Max(1,$apps.Count) / $appCols))
         $panelW = (2 * $padX) + ($appCols * $cellW)
-        $panelH = $padY + ($rows * $cellH) + 12
+        $panelH = $padY + ($rows * $cellH) + 16
         $folderLines.Add("PanelWidth=$panelW")
         $folderLines.Add("PanelHeight=$panelH")
         $folderLines.Add("FolderPath=#CURRENTCONFIGDIR#")
@@ -995,7 +984,7 @@ function Write-Launcher($Data) {
             $relIconX = $padX + ($col * $cellW) + [Math]::Floor($cellW / 2) - 20
             $relCenterX = $padX + ($col * $cellW) + [Math]::Floor($cellW / 2)
             $relIconY = $padY + ($row * $cellH)
-            $relLabelY = $relIconY + 44
+            $relLabelY = $relIconY + 45
 
             $appName = Escape-Ini ([string]$app.name)
             $iconName = [string]$app.icon
@@ -1024,8 +1013,8 @@ function Write-Launcher($Data) {
             $folderLines.Add("Group=PanelContent")
             $folderLines.Add("X=((#PanelX# + #AnimShiftX# + ($relCenterX * #AnimScale#)) * #IsOpen#)")
             $folderLines.Add("Y=((#PanelY# + #AnimShiftY# + ($relLabelY * #AnimScale#)) * #IsOpen#)")
-            $folderLines.Add("W=(($cellW - 6) * #AnimScale# * #IsOpen#)")
-            $folderLines.Add("H=(32 * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("W=(($cellW - 10) * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("H=(44 * #AnimScale# * #IsOpen#)")
             $folderLines.Add("Text=$appName")
             $folderLines.Add("FontFace=Segoe UI")
             $folderLines.Add("FontSize=9")
