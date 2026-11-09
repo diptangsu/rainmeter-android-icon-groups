@@ -87,6 +87,7 @@ end
 
 function ApplyAnimFrame(p)
     local style = SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'
+    style = style:gsub('%s+', '')
     local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 364
     local panelH = tonumber(SKIN:GetVariable('PanelHeight')) or 136
 
@@ -97,25 +98,30 @@ function ApplyAnimFrame(p)
     local shiftY = 0
 
     if style == 'ExpandCollapse' then
-        scale = 0.22 + (0.78 * ease)
+        scale = 0.20 + (0.80 * ease)
         shiftX = openLeft and math.floor((1 - scale) * (panelW - 38)) or math.floor((1 - scale) * 20)
-        shiftY = openUp and math.floor((1 - scale) * panelH) or math.floor(-(1 - scale) * 24)
+        shiftY = openUp and math.floor((1 - scale) * panelH) or math.floor(-(1 - scale) * 28)
     elseif style == 'ElasticBounce' then
-        local c1 = 1.70158
+        -- Overshoot spring curve (peaks around 1.12x scale before settling at 1.0x)
+        local c1 = 2.6
         local c3 = c1 + 1
         local backEase = 1 + c3 * math.pow(p - 1, 3) + c1 * math.pow(p - 1, 2)
         scale = math.max(0.15, 0.20 + (0.80 * backEase))
+        alpha = math.max(0, math.min(255, math.floor(255 * math.min(1, p * 1.8))))
         shiftX = openLeft and math.floor((1 - scale) * (panelW - 38)) or math.floor((1 - scale) * 20)
-        shiftY = openUp and math.floor((1 - scale) * panelH) or math.floor(-(1 - scale) * 24)
+        shiftY = openUp and math.floor((1 - scale) * panelH) or math.floor(-(1 - scale) * 28)
     elseif style == 'Slide' then
+        -- Pure slide at 100% full scale (no shrinking/expanding)
         scale = 1
-        local dist = math.floor((1 - ease) * 38)
-        shiftX = openLeft and dist or 0
+        local dist = math.floor((1 - ease) * 75)
+        shiftX = openLeft and dist or -math.floor(dist * 0.35)
         shiftY = openUp and dist or -dist
     elseif style == 'Fade' then
+        -- Pure opacity fade in place at 100% scale and 0 position shift
         scale = 1
         shiftX = 0
         shiftY = 0
+        alpha = math.max(0, math.min(255, math.floor(255 * p)))
     else -- 'None'
         scale = 1
         alpha = p >= 0.5 and 255 or 0
@@ -135,7 +141,7 @@ function Update()
     if animState == "idle" then return end
 
     if animState == "opening" then
-        animProgress = animProgress + 0.20
+        animProgress = animProgress + 0.11
         if animProgress >= 1 then
             animProgress = 1
             animState = "idle"
@@ -146,7 +152,7 @@ function Update()
         end
         ApplyAnimFrame(animProgress)
     elseif animState == "closing" then
-        animProgress = animProgress - 0.22
+        animProgress = animProgress - 0.14
         if animProgress <= 0 then
             animProgress = 0
             animState = "idle"

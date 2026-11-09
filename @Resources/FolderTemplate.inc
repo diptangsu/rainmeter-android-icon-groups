@@ -4,7 +4,6 @@ OnUnfocusAction=[!CommandMeasure MeasureToggle "ClosePanel()"]
 
 [Variables]
 IsOpen=0
-AnimStyle=ExpandCollapse
 AnimScale=1
 AnimAlpha=255
 AnimShiftX=0

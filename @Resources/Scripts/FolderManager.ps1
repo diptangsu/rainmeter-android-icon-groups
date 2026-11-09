@@ -199,15 +199,12 @@ function Show-FolderManager([ref]$Data) {
     $renameButton.Text = "Save Name"; $renameButton.Location = New-Object Drawing.Point(300, 76); $renameButton.Size = New-Object Drawing.Size(96, 28)
 
     $animLabel = New-Object Windows.Forms.Label
-    $animLabel.Text = "Animation:"; $animLabel.Location = New-Object Drawing.Point(412, 81); $animLabel.Size = New-Object Drawing.Size(68, 22)
+    $animLabel.Text = "Animation:"; $animLabel.Location = New-Object Drawing.Point(410, 81); $animLabel.Size = New-Object Drawing.Size(68, 22)
 
     $animCombo = New-Object Windows.Forms.ComboBox
-    $animCombo.Location = New-Object Drawing.Point(482, 77); $animCombo.Size = New-Object Drawing.Size(135, 25)
+    $animCombo.Location = New-Object Drawing.Point(480, 77); $animCombo.Size = New-Object Drawing.Size(135, 25)
     $animCombo.DropDownStyle = "DropDownList"
     [void]$animCombo.Items.AddRange(@("ExpandCollapse", "ElasticBounce", "Slide", "Fade", "None"))
-    $curAnim = if ($Data.Value.animation) { [string]$Data.Value.animation } else { "ExpandCollapse" }
-    $animIdx = $animCombo.Items.IndexOf($curAnim)
-    $animCombo.SelectedIndex = if ($animIdx -ge 0) { $animIdx } else { 0 }
 
     $mainTop.Controls.AddRange(@(
         $breadcrumb, $backButton, $addShortcutButton, $customIconButton,
@@ -393,6 +390,12 @@ function Show-FolderManager([ref]$Data) {
         }
         $grid.EndUpdate()
 
+        $curAnim = if ($Data.Value.animation) { [string]$Data.Value.animation } else { "ExpandCollapse" }
+        $animIdx = $animCombo.Items.IndexOf($curAnim)
+        if ($animIdx -ge 0 -and $animCombo.SelectedIndex -ne $animIdx) {
+            $animCombo.SelectedIndex = $animIdx
+        }
+
         # Force immediate UI repaint
         $grid.Invalidate()
         $grid.Refresh()
@@ -522,11 +525,31 @@ function Show-FolderManager([ref]$Data) {
     })
 
     $animCombo.Add_SelectedIndexChanged({
+        if ($script:suppressListEvent) { return }
         $chosenAnim = [string]$animCombo.SelectedItem
-        if ($chosenAnim -and $Data.Value.animation -ne $chosenAnim) {
+        if (!$chosenAnim) { return }
+
+        if ($Data.Value.PSObject.Properties['animation']) {
             $Data.Value.animation = $chosenAnim
+        } else {
+            $Data.Value | Add-Member -NotePropertyName "animation" -NotePropertyValue $chosenAnim -Force
+        }
+
+        script:Commit-ManagerChanges
+        $statusLabel.Text = "Applied '$chosenAnim' animation to all folders."
+    })
+
+    $animCombo.Add_SelectedIndexChanged({
+        if ($script:suppressAnimEvent) { return }
+        $chosenAnim = [string]$animCombo.SelectedItem
+        if ($chosenAnim) {
+            if ($Data.Value.PSObject.Properties['animation']) {
+                $Data.Value.animation = $chosenAnim
+            } else {
+                $Data.Value | Add-Member -NotePropertyName "animation" -NotePropertyValue $chosenAnim -Force
+            }
             script:Commit-ManagerChanges
-            $statusLabel.Text = "Updated folder animation to '$chosenAnim'."
+            $statusLabel.Text = "Folder animation changed to '$chosenAnim'."
         }
     })
 
@@ -728,9 +751,17 @@ function Load-Data {
         $starter | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $DataFile -Encoding UTF8
     }
     $data = Get-Content -LiteralPath $DataFile -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($null -eq $data.folders) { $data = [pscustomobject]@{ animation="ExpandCollapse"; folders=@() } }
-    if (!$data.PSObject.Properties['animation'] -or [string]::IsNullOrWhiteSpace($data.animation)) {
-        $data | Add-Member -NotePropertyName "animation" -NotePropertyValue "ExpandCollapse" -Force
+    if ($null -eq $data.folders) {
+        $data = [pscustomobject]@{ animation = "ExpandCollapse"; folders = @() }
+    }
+    if ($data -is [hashtable]) {
+        if (!$data.ContainsKey("animation") -or [string]::IsNullOrWhiteSpace($data["animation"])) {
+            $data["animation"] = "ExpandCollapse"
+        }
+    } else {
+        if (!$data.PSObject.Properties['animation'] -or [string]::IsNullOrWhiteSpace($data.animation)) {
+            $data | Add-Member -NotePropertyName "animation" -NotePropertyValue "ExpandCollapse" -Force
+        }
     }
     return $data
 }
@@ -832,15 +863,15 @@ function Write-Launcher($Data) {
         throw "Missing shared folder template: $FolderTemplate"
     }
     if (!(Test-Path $FolderRoot)) {
-        New-Item -ItemType Directory -Path $FolderRoot | Out-Null
+        New-Item -ItemType Directory -Path $FolderRoot -Force | Out-Null
     }
 
-    # Remember existing WindowX / WindowY positions before regenerating Folder.ini files
+    # Read existing WindowX / WindowY positions without deleting active directories
     $existingPos = @{}
     Get-ChildItem -LiteralPath $FolderRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
         $iniFile = Join-Path $_.FullName "Folder.ini"
         if (Test-Path $iniFile) {
-            $rawIni = Get-Content -LiteralPath $iniFile -Raw -Encoding UTF8
+            $rawIni = Get-Content -LiteralPath $iniFile -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
             $wx = $null; $wy = $null
             if ($rawIni -match '(?m)^WindowX=(-?\d+)') { $wx = $matches[1] }
             if ($rawIni -match '(?m)^WindowY=(-?\d+)') { $wy = $matches[1] }
@@ -848,23 +879,26 @@ function Write-Launcher($Data) {
                 $existingPos[$_.Name] = @{ X = $wx; Y = $wy }
             }
         }
-        Remove-Item -LiteralPath $_.FullName -Recurse -Force
     }
 
-    $animMode = if ($Data.animation) { [string]$Data.animation } else { "ExpandCollapse" }
+    $animMode = if ($Data.PSObject.Properties['animation'] -and $Data.animation) { [string]$Data.animation } else { "ExpandCollapse" }
+    $validNames = @(Get-FolderDirectoryNames $folders)
+
+    # Only delete directories for folders that were removed from Data.json
+    Get-ChildItem -LiteralPath $FolderRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Name -notin $validNames) {
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 
     for ($i=0; $i -lt $folders.Count; $i++) {
         $folder = $folders[$i]
         $folderId = [string]$folder.id
-        $folderName = Get-FolderDirectoryName ([string]$folder.name)
+        $folderName = $validNames[$i]
         $folderDir = Join-Path $FolderRoot $folderName
-        $suffix = 2
-        while (Test-Path $folderDir) {
-            $folderName = "$(Get-FolderDirectoryName ([string]$folder.name))_$suffix"
-            $folderDir = Join-Path $FolderRoot $folderName
-            $suffix++
+        if (!(Test-Path $folderDir)) {
+            New-Item -ItemType Directory -Path $folderDir -Force | Out-Null
         }
-        New-Item -ItemType Directory -Path $folderDir | Out-Null
 
         if ($existingPos.ContainsKey($folderName)) {
             $x = $existingPos[$folderName].X
@@ -894,6 +928,7 @@ function Write-Launcher($Data) {
         $folderLines.Add("[Variables]")
         $folderLines.Add("FolderID=$folderId")
         $folderLines.Add("FolderName=$(Escape-Ini ([string]$folder.name))")
+        $folderLines.Add("AnimStyle=$animMode")
 
         $apps = @($folder.shortcuts)
         $appCols = 4
@@ -905,11 +940,7 @@ function Write-Launcher($Data) {
         $folderLines.Add("PanelHeight=$panelH")
         $folderLines.Add("FolderPath=#CURRENTCONFIGDIR#")
         $folderLines.Add("")
-
         $folderLines.Add("@Include=#@#FolderTemplate.inc")
-        $folderLines.Add("")
-        $folderLines.Add("[Variables]")
-        $folderLines.Add("AnimStyle=$animMode")
         $folderLines.Add("")
 
         # 2x2 Mini-Icon Folder Preview
@@ -1012,20 +1043,25 @@ function Write-Launcher($Data) {
             $folderLines.Add('LeftMouseDoubleClickAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
         }
-        [IO.File]::WriteAllLines((Join-Path $folderDir "Folder.ini"), $folderLines, $utf8)
+        $iniTarget = Join-Path $folderDir "Folder.ini"
+        [IO.File]::WriteAllLines($iniTarget, $folderLines, $utf8)
     }
 }
 
 function Refresh-Skin {
     if (Test-Path $RainmeterExe) {
         $data = Load-Data
+        $animMode = if ($data.PSObject.Properties['animation'] -and $data.animation) { [string]$data.animation } else { "ExpandCollapse" }
         $skinName = Split-Path -Leaf $Root
-        Start-Process -FilePath $RainmeterExe -ArgumentList "!Refresh `"$skinName\Launcher`"" -WindowStyle Hidden
         foreach ($folderName in @(Get-FolderDirectoryNames $data.folders)) {
-            Start-Sleep -Milliseconds 40
-            Start-Process -FilePath $RainmeterExe -ArgumentList "!ActivateConfig `"$skinName\Folders\$folderName`" Folder.ini" -WindowStyle Hidden
-            Start-Sleep -Milliseconds 40
-            Start-Process -FilePath $RainmeterExe -ArgumentList "!RefreshConfig `"$skinName\Folders\$folderName`"" -WindowStyle Hidden
+            $iniPath = Join-Path $FolderRoot "$folderName\Folder.ini"
+            if (Test-Path $iniPath) {
+                $cfg = "$skinName\Folders\$folderName"
+                Start-Process -FilePath $RainmeterExe -ArgumentList "!ActivateConfig `"$cfg`" `"Folder.ini`"" -WindowStyle Hidden
+                Start-Sleep -Milliseconds 35
+                Start-Process -FilePath $RainmeterExe -ArgumentList "!SetVariable AnimStyle `"$animMode`" `"$cfg`"" -WindowStyle Hidden
+                Start-Process -FilePath $RainmeterExe -ArgumentList "!Refresh `"$cfg`"" -WindowStyle Hidden
+            }
         }
     }
 }
