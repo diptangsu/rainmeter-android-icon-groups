@@ -1,18 +1,60 @@
 # Android-style Dynamic Rainmeter Launcher
 
 A desktop-style launcher for Rainmeter, inspired by Android folders. It
-organizes applications and files into movable folder skins, with a settings
-panel for managing the contents.
+organizes applications and files into independently movable desktop folders.
+Open a folder to launch its shortcuts from an animated popup, and use the
+built-in folder browser to manage your layout.
+
+## Why I wanted to make it
+
+A friend of mine called my desktop ugly and cluttered and I agreed.
 
 ## Features
 
-- Create, rename, and delete launcher folders
-- Add shortcuts through a native Windows file browser
-- Automatically extract icons for supported applications and files
-- Replace shortcut icons with PNG, ICO, JPG, or BMP images
-- Drag folders independently to any desktop position
-- Open folders in a popup and launch shortcuts from a grid
-- Store launcher configuration locally in `Data.json`
+- Create, rename, and delete folders from an all-folders overview
+- Add files and shortcuts with the Windows file browser or drag and drop from
+  File Explorer
+- Automatically extract icons for supported targets or use a custom PNG, ICO,
+  JPG, or BMP icon
+- Rename shortcuts and drag them within the settings grid to reorder them
+- Choose the animation used by folder popups: Expand/Collapse, Elastic Bounce,
+  Slide, Fade, or None
+- Open folders in a styled popup and launch shortcuts from an icon grid
+- Move each folder independently on the desktop; Rainmeter remembers its
+  position
+- Keep launcher configuration and shortcut paths locally in `Data.json`
+
+## Screenshots and video
+
+### Desktop
+
+Before organizing shortcuts into folders:
+
+![Desktop before using Android Icon Groups](Docs/desktop-before.png)
+
+The desktop with Android Icon Groups:
+
+![Android Icon Groups on the desktop](Docs/desktop-after.png)
+
+### Folder browser
+
+All-folders overview:
+
+![Folder browser showing the all-folders overview](Docs/settings-ui.png)
+
+A folder selected for shortcut management:
+
+![Folder browser showing shortcuts and animation settings](Docs/settings-ui-folder.png)
+
+### Popup animation
+
+Watch the folder popup animation demo:
+
+<video src="Docs/bounce-animation-recording.mp4" controls width="720">
+  Your browser does not support embedded video.
+</video>
+
+[Open the animation recording](Docs/bounce-animation-recording.mp4).
 
 ## Requirements
 
@@ -33,37 +75,40 @@ panel for managing the contents.
 
    If Rainmeter uses another skins directory, copy it there instead.
 3. Open **Rainmeter Manage**, click **Refresh all**, and load
-   `AndroidIconGroups\Settings.ini`.
-4. Click **Open folder browser** to create folders and shortcuts in the
-   unified settings window.
-5. Load `AndroidIconGroups\Launcher.ini`.
-6. Position each generated folder where desired. Rainmeter remembers the
+   `AndroidIconGroups\Launcher.ini`.
+4. Click **Open folder browser** on the launcher skin to create folders and
+   shortcuts in the settings window.
+5. Position each generated folder where desired. Rainmeter remembers the
    location of each folder skin independently.
 
-You can leave Settings open while configuring the launcher or unload it after
-your changes are complete.
+You can leave the folder browser open while configuring the launcher or close
+it when you are done.
 
 ## First-time configuration
 
 The first initialization creates local folders named **Work** and **Games**.
-Use **Create folder**, **Rename folder**, and **Delete folder** to build the
-layout you want. Then add shortcuts with **Add shortcut (Browse)**.
+Use **All Folders (Overview)** and **Create Folder** to build your layout.
+Select a folder to add shortcuts, rename it, change its animation, or remove
+shortcuts. Drag files from File Explorer into the folder list or shortcut grid
+to add them.
 
-When adding a shortcut, select the target file, application, or Windows
-shortcut and enter the name shown in the launcher. The optional custom-icon
-prompt accepts PNG, ICO, JPG, and BMP images.
+When adding a shortcut with the browser, select the target file, application,
+or Windows shortcut and enter the name shown in the launcher. You can rename
+shortcuts later from the settings window. Use **Change Icon** to choose a
+custom PNG, ICO, JPG, or BMP image.
 
 ## Managing shortcuts and folders
 
 | Action | Description |
 | --- | --- |
-| Create folder | Add an empty folder and generate its Rainmeter skin |
-| Rename folder | Change the folder display name |
-| Delete folder | Remove the folder and its launcher entries |
-| Add shortcut (Browse) | Choose a target and add it to a selected folder |
-| Remove shortcut | Remove a launcher entry from a selected folder |
-| Change shortcut icon | Replace an existing shortcut icon with a local image |
-| Refresh / Initialize | Rebuild generated skins and icon files |
+| Create folder | Add a folder and generate its Rainmeter skin |
+| Rename folder or shortcut | Change the selected folder or shortcut's display name |
+| Add shortcut | Browse for a target or drag files from File Explorer |
+| Reorder shortcuts | Drag shortcuts to change their order in the folder |
+| Change icon | Replace a shortcut icon with a local image |
+| Remove shortcut | Remove an entry from the selected folder |
+| Choose animation | Set the popup animation used by folders |
+| Delete folder | Remove a folder and its launcher entries |
 
 Rainmeter skin files and extracted icons can be regenerated from the launcher
 configuration. Do not manually edit generated folder INI files unless you
@@ -89,11 +134,13 @@ to be re-added if the target location differs.
 
 The core files are:
 
-- `Settings.ini` - settings panel
-- `Launcher.ini` - folder launcher refresh entry point
+- `Launcher.ini` - launcher skin and entry point to the folder browser
 - `@Resources\Scripts\FolderManager.ps1` - configuration and skin generation
+- `@Resources\Scripts\FolderPopup.lua` - folder popup and animation behavior
 - `@Resources\Scripts\LoadFolders.lua` - Rainmeter folder-loading behavior
 - `@Resources\FolderTemplate.inc` - shared generated-folder template
+
+Screenshots and the popup animation recording shown above are in `Docs/`.
 
 Generated configuration, state, and extracted/custom icon files are ignored
 by Git. Static artwork in `@Resources\Icons` remains included.
@@ -103,6 +150,8 @@ by Git. Static artwork in `@Resources\Icons` remains included.
 - This is a launcher overlay; deleting an entry does not delete its original
   application, file, or Windows shortcut.
 - Folder skins are regenerated when configuration changes.
+- Dragging a shortcut in the folder browser changes its order; dragging a file
+  from File Explorer adds it to the selected folder.
 - Icon extraction depends on Windows and the target file type. Some packaged
   applications, network targets, and unusual file formats may fall back to a
   generic icon.
