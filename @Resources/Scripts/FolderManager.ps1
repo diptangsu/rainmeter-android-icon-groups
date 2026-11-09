@@ -202,7 +202,7 @@ function Show-FolderManager([ref]$Data) {
     $animLabel.Text = "Animation:"; $animLabel.Location = New-Object Drawing.Point(410, 81); $animLabel.Size = New-Object Drawing.Size(68, 22)
 
     $animCombo = New-Object Windows.Forms.ComboBox
-    $animCombo.Location = New-Object Drawing.Point(480, 77); $animCombo.Size = New-Object Drawing.Size(135, 25)
+    $animCombo.Location = New-Object Drawing.Point(480, 77); $animCombo.Size = New-Object Drawing.Size(125, 25)
     $animCombo.DropDownStyle = "DropDownList"
     [void]$animCombo.Items.AddRange(@("ExpandCollapse", "ElasticBounce", "Slide", "Fade", "None"))
 
