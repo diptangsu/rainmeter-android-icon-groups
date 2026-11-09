@@ -50,9 +50,11 @@ A folder selected for shortcut management:
 
 Watch the folder popup animation demo:
 
-<video src="Docs/bounce-animation-recording.mp4" controls width="720">
-  Your browser does not support embedded video.
-</video>
+
+
+https://github.com/user-attachments/assets/ca3c0eb9-39a6-45ed-a428-d71b3415b1a9
+
+
 
 [Open the animation recording](Docs/bounce-animation-recording.mp4).
 
