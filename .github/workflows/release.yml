@@ -20,6 +20,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist/Skins/AndroidIconGroups/@Resources/Scripts
           mkdir -p dist/Skins/AndroidIconGroups/Icons
+          mkdir -p out
 
           cp Launcher.ini dist/Skins/AndroidIconGroups/
           cp @Resources/FolderTemplate.inc dist/Skins/AndroidIconGroups/@Resources/
@@ -46,7 +47,7 @@ jobs:
         uses: 2bndy5/rmskin-action@v2.0.4
         with:
           path: dist
-          dir-out: out
+          dir_out: out
           title: AndroidIconGroups
           version: ${{ github.ref_name }}
 
