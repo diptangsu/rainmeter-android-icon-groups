@@ -1112,23 +1112,25 @@ function Write-Launcher($Data) {
 function Refresh-Skin {
     if (Test-Path $RainmeterExe) {
         $data = Load-Data
-        $animMode = if ($data.PSObject.Properties['animation'] -and $data.animation) { [string]$data.animation } else { "ExpandCollapse" }
-        $fOp = if ($data.PSObject.Properties['folderOpacity'] -and $null -ne $data.folderOpacity) { [int]$data.folderOpacity } else { 100 }
-        $pOp = if ($data.PSObject.Properties['previewOpacity'] -and $null -ne $data.previewOpacity) { [int]$data.previewOpacity } else { 92 }
-        $folderAlphaScale = [Math]::Round($fOp / 100.0, 2).ToString([System.Globalization.CultureInfo]::InvariantCulture)
-        $previewAlpha = [int][Math]::Round(255 * ($pOp / 100.0))
-
         $skinName = Split-Path -Leaf $Root
-        foreach ($folderName in @(Get-FolderDirectoryNames $data.folders)) {
+        $folderNames = @(Get-FolderDirectoryNames $data.folders)
+
+        # 1. Instantly close any open/closing popups so shifted coordinates are restored first
+        foreach ($folderName in $folderNames) {
+            $cfg = "$skinName\Folders\$folderName"
+            Start-Process -FilePath $RainmeterExe -ArgumentList "!CommandMeasure MeasureToggle `"ClosePanelInstant()`" `"$cfg`"" -WindowStyle Hidden
+        }
+        Start-Sleep -Milliseconds 60
+
+        # 2. Refresh each folder skin from the updated Folder.ini and keep it draggable
+        foreach ($folderName in $folderNames) {
             $iniPath = Join-Path $FolderRoot "$folderName\Folder.ini"
             if (Test-Path $iniPath) {
                 $cfg = "$skinName\Folders\$folderName"
                 Start-Process -FilePath $RainmeterExe -ArgumentList "!ActivateConfig `"$cfg`" `"Folder.ini`"" -WindowStyle Hidden
-                Start-Sleep -Milliseconds 35
-                Start-Process -FilePath $RainmeterExe -ArgumentList "!SetVariable AnimStyle `"$animMode`" `"$cfg`"" -WindowStyle Hidden
-                Start-Process -FilePath $RainmeterExe -ArgumentList "!SetVariable FolderAlphaScale `"$folderAlphaScale`" `"$cfg`"" -WindowStyle Hidden
-                Start-Process -FilePath $RainmeterExe -ArgumentList "!SetVariable PreviewAlpha `"$previewAlpha`" `"$cfg`"" -WindowStyle Hidden
+                Start-Sleep -Milliseconds 25
                 Start-Process -FilePath $RainmeterExe -ArgumentList "!Refresh `"$cfg`"" -WindowStyle Hidden
+                Start-Process -FilePath $RainmeterExe -ArgumentList "!Draggable 1 `"$cfg`"" -WindowStyle Hidden
             }
         }
     }

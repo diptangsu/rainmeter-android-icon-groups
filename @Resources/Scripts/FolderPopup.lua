@@ -3,7 +3,7 @@ local CLOSE_DURATION = 0.12
 
 function Initialize()
     isOpen = false
-    animState = "idle" -- "idle", "opening", "closing"
+    animState = "idle"
     animStartTime = 0
     animStartProgress = 0
     animProgress = 0
@@ -11,12 +11,14 @@ function Initialize()
     openUp = false
     selectedIdx = -1
 
-    -- Cached per-toggle values to avoid SKIN:GetVariable() inside the 60 FPS loop
+    savedOrigX = nil
+    savedOrigY = nil
+    didMove = false
+
     cachedStyle = "ExpandCollapse"
     cachedPanelW = 448
     cachedPanelH = 146
 
-    -- Dirty-tracking to skip redundant !SetVariable bangs
     lastScale = -1
     lastAlpha = -1
     lastShiftX = -9999
@@ -230,35 +232,31 @@ function OpenPanel()
         selectedIdx = -1
     end
 
-    -- Cache variables once per open
     cachedStyle = (SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'):gsub('%s+', '')
     cachedPanelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
     cachedPanelH = tonumber(SKIN:GetVariable('PanelHeight')) or 146
 
-    local skinX = tonumber(SKIN:GetVariable('CURRENTCONFIGX')) or 0
-    local skinY = tonumber(SKIN:GetVariable('CURRENTCONFIGY')) or 0
-    local workX = tonumber(SKIN:GetVariable('WORKAREAX')) or 0
-    local workY = tonumber(SKIN:GetVariable('WORKAREAY')) or 0
-    local workW = tonumber(SKIN:GetVariable('WORKAREAWIDTH')) or 1920
-    local workH = tonumber(SKIN:GetVariable('WORKAREAHEIGHT')) or 1080
+    local skinX = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGX#'))
+    local skinY = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGY#'))
+    local workX = tonumber(SKIN:ReplaceVariables('#WORKAREAX#')) or 0
+    local workY = tonumber(SKIN:ReplaceVariables('#WORKAREAY#')) or 0
+    local workW = tonumber(SKIN:ReplaceVariables('#WORKAREAWIDTH#')) or 1920
+    local workH = tonumber(SKIN:ReplaceVariables('#WORKAREAHEIGHT#')) or 1080
 
     local rightEdge = workX + workW
     local bottomEdge = workY + workH
 
-    local bangs = {}
-    local origX, origY
     if not isOpen then
-        origX = skinX
-        origY = skinY
-        bangs[#bangs + 1] = '[!SetVariable OrigX ' .. origX .. '][!SetVariable OrigY ' .. origY .. ']'
-    else
-        origX = tonumber(SKIN:GetVariable('OrigX')) or skinX
-        origY = tonumber(SKIN:GetVariable('OrigY')) or skinY
+        savedOrigX = skinX
+        savedOrigY = skinY
+        didMove = false
     end
 
     isOpen = true
-    local newSkinX = origX
-    local newSkinY = origY
+    local origX = savedOrigX
+    local savedOrigY = savedOrigY
+    local newSkinX = savedOrigX
+    local newSkinY = savedOrigY
     local iconOffsetX = 0
     local iconOffsetY = 0
     local panelX = 18
@@ -267,37 +265,41 @@ function OpenPanel()
     openLeft = false
     openUp = false
 
-    if (origX + 18 + cachedPanelW) > (rightEdge - 12) then
-        openLeft = true
-        local shiftLeft = cachedPanelW - 76
-        newSkinX = origX - shiftLeft
-        iconOffsetX = shiftLeft
-        panelX = 18
+    -- Only shift if live coordinates were read and the popup overflows the current work area
+    if savedOrigX ~= nil and savedOrigY ~= nil then
+        if savedOrigX >= workX and savedOrigX <= rightEdge and (savedOrigX + 18 + cachedPanelW) > (rightEdge - 12) then
+            openLeft = true
+            local shiftLeft = cachedPanelW - 76
+            newSkinX = savedOrigX - shiftLeft
+            iconOffsetX = shiftLeft
+            panelX = 18
+        end
+
+        if savedOrigY >= workY and savedOrigY <= bottomEdge and (savedOrigY + 104 + cachedPanelH) > (bottomEdge - 12) then
+            openUp = true
+            local shiftUp = cachedPanelH + 12
+            newSkinY = savedOrigY - shiftUp
+            iconOffsetY = shiftUp
+            panelY = 10
+        end
     end
 
-    if (origY + 104 + cachedPanelH) > (bottomEdge - 12) then
-        openUp = true
-        local shiftUp = cachedPanelH + 12
-        newSkinY = origY - shiftUp
-        iconOffsetY = shiftUp
-        panelY = 10
-    end
-
-    bangs[#bangs + 1] =
+    local bangs = {
         '[!SetVariable IsOpen 1]' ..
         '[!KeepOnScreen 0][!Draggable 0]' ..
         '[!SetVariable IconOffsetX ' .. iconOffsetX .. ']' ..
         '[!SetVariable IconOffsetY ' .. iconOffsetY .. ']' ..
         '[!SetVariable PanelX ' .. panelX .. ']' ..
         '[!SetVariable PanelY ' .. panelY .. ']'
+    }
 
-    if newSkinX ~= skinX or newSkinY ~= skinY then
+    if newSkinX ~= nil and newSkinY ~= nil and (newSkinX ~= skinX or newSkinY ~= skinY) then
+        didMove = true
         bangs[#bangs + 1] = '[!Move ' .. newSkinX .. ' ' .. newSkinY .. ']'
     end
 
     bangs[#bangs + 1] = '[!ShowMeterGroup PanelContent][!HideMeter SelectionHighlight]'
 
-    -- Reset dirty trackers so the first frame always pushes variables
     lastScale, lastAlpha, lastShiftX, lastShiftY = -1, -1, -9999, -9999
 
     if cachedStyle == 'None' then
@@ -344,11 +346,7 @@ function FinishClose()
     animProgress = 0
     lastScale, lastAlpha, lastShiftX, lastShiftY = 1, 0, 0, 0
 
-    local origX = tonumber(SKIN:GetVariable('OrigX'))
-    local origY = tonumber(SKIN:GetVariable('OrigY'))
-
-    local moveBang = (origX and origY) and ('[!Move ' .. origX .. ' ' .. origY .. ']') or ''
-
+    -- Step 1: Collapse meters and shrink the dynamic window BEFORE any !Move bang
     SKIN:Bang(
         '[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]' ..
         '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight]' ..
@@ -357,7 +355,26 @@ function FinishClose()
         '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
         '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
         '[!SetVariable PanelX 18][!SetVariable PanelY 104]' ..
-        moveBang ..
-        '[!Draggable 1][!KeepOnScreen 0][!UpdateMeter *][!Redraw]'
+        '[!KeepOnScreen 0][!UpdateMeter *]'
     )
+
+    -- Step 2: Only move back if OpenPanel() actually shifted the window for a screen edge
+    if didMove and savedOrigX ~= nil and savedOrigY ~= nil then
+        SKIN:Bang('[!Move ' .. savedOrigX .. ' ' .. savedOrigY .. ']')
+    end
+    didMove = false
+
+    SKIN:Bang('[!Draggable 1][!Redraw]')
+end
+
+function ClosePanelInstant()
+    if selectedIdx >= 0 then
+        RestoreIcon(selectedIdx)
+        selectedIdx = -1
+    end
+    if isOpen then
+        FinishClose()
+    else
+        SKIN:Bang('[!Draggable 1][!KeepOnScreen 0]')
+    end
 end
