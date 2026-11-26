@@ -56,12 +56,13 @@ function RestoreIcon(idx)
     local iconName = 'AppIcon_' .. idx
     local labelName = 'AppLabel_' .. idx
 
+    -- Use #*Var*# so Rainmeter writes literal #Var# into the meter instead of baking current values
     SKIN:Bang(
-        '[!SetOption ' .. iconName .. ' X "(([#PanelX] + [#AnimShiftX] + (' .. relIconX .. ' * [#AnimScale])) * [#IsOpen])"]' ..
-        '[!SetOption ' .. iconName .. ' Y "(([#PanelY] + [#AnimShiftY] + (' .. relIconY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
-        '[!SetOption ' .. iconName .. ' W "(40 * [#AnimScale] * [#IsOpen])"]' ..
-        '[!SetOption ' .. iconName .. ' H "(40 * [#AnimScale] * [#IsOpen])"]' ..
-        '[!SetOption ' .. labelName .. ' Y "(([#PanelY] + [#AnimShiftY] + (' .. relLabelY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption ' .. iconName .. ' X "((#*PanelX*# + #*AnimShiftX*# + (' .. relIconX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relIconY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' W "(40 * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' H "(40 * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. labelName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relLabelY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!SetOption ' .. labelName .. ' FontWeight "400"]' ..
         '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. ']'
     )
@@ -111,16 +112,16 @@ function SelectApp(idx)
     local relBoxY = baseIconY - 6
 
     SKIN:Bang(
-        '[!SetOption ' .. iconName .. ' X "(([#PanelX] + [#AnimShiftX] + (' .. expIconX .. ' * [#AnimScale])) * [#IsOpen])"]' ..
-        '[!SetOption ' .. iconName .. ' Y "(([#PanelY] + [#AnimShiftY] + (' .. expIconY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
-        '[!SetOption ' .. iconName .. ' W "(46 * [#AnimScale] * [#IsOpen])"]' ..
-        '[!SetOption ' .. iconName .. ' H "(46 * [#AnimScale] * [#IsOpen])"]' ..
-        '[!SetOption ' .. labelName .. ' Y "(([#PanelY] + [#AnimShiftY] + (' .. expLabelY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption ' .. iconName .. ' X "((#*PanelX*# + #*AnimShiftX*# + (' .. expIconX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. expIconY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' W "(46 * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' H "(46 * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. labelName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. expLabelY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!SetOption ' .. labelName .. ' FontWeight "600"]' ..
         '[!SetVariable SelW ' .. selW .. ']' ..
         '[!SetVariable SelH ' .. selH .. ']' ..
-        '[!SetOption SelectionHighlight X "(([#PanelX] + [#AnimShiftX] + (' .. relBoxX .. ' * [#AnimScale])) * [#IsOpen])"]' ..
-        '[!SetOption SelectionHighlight Y "(([#PanelY] + [#AnimShiftY] + (' .. relBoxY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption SelectionHighlight X "((#*PanelX*# + #*AnimShiftX*# + (' .. relBoxX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
+        '[!SetOption SelectionHighlight Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relBoxY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!ShowMeter SelectionHighlight]' ..
         '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. '][!UpdateMeter SelectionHighlight][!Redraw]'
     )
