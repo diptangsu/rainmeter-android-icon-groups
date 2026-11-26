@@ -147,6 +147,14 @@ Screenshots and the popup animation recording shown above are in `Docs/`.
 Generated configuration, state, and extracted/custom icon files are ignored
 by Git. Static artwork in `@Resources\Icons` remains included.
 
+## Regenerating folders from Data.json
+
+The script stores all folder configurations in `@Resources/Data.json`. All folders can be force re-generated using this powershell command.
+
+```pwsh
+powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "$HOME\Documents\Rainmeter\Skins\AndroidIconGroups\@Resources\Scripts\FolderManager.ps1" -Action Initialize
+```
+
 ## Notes and limitations
 
 - This is a launcher overlay; deleting an entry does not delete its original
