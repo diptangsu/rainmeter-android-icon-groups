@@ -1,5 +1,7 @@
 local OPEN_DURATION = 0.16
 local CLOSE_DURATION = 0.12
+local HOVER_IN_DURATION = 0.09
+local HOVER_OUT_DURATION = 0.13
 
 function Initialize()
     isOpen = false
@@ -10,6 +12,13 @@ function Initialize()
     openLeft = false
     openUp = false
     selectedIdx = -1
+
+    hoveredIdx = -1
+    hoverAlpha = 0
+    hoverTarget = 0
+    hoverStartTime = 0
+    hoverStartAlpha = 0
+    lastHoverAlpha = -1
 
     savedOrigX = nil
     savedOrigY = nil
@@ -66,6 +75,73 @@ function RestoreIcon(idx)
         '[!SetOption ' .. labelName .. ' FontWeight "400"]' ..
         '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. ']'
     )
+end
+
+function ResetHover()
+    hoveredIdx = -1
+    hoverAlpha = 0
+    hoverTarget = 0
+    lastHoverAlpha = 0
+    SKIN:Bang('[!SetVariable HoverAlpha 0][!HideMeter HoverHighlight][!UpdateMeter HoverHighlight]')
+end
+
+function HoverApp(idx)
+    if not isOpen or animState ~= "idle" then return end
+    idx = tonumber(idx) or -1
+    if idx < 0 or idx == selectedIdx then
+        if hoveredIdx >= 0 then UnhoverApp(hoveredIdx) end
+        return
+    end
+
+    local col = idx % 4
+    local row = math.floor(idx / 4)
+    local panelW, cellW, cellH, padX, padY = GetGridMetrics()
+
+    local baseIconY = padY + (row * cellH)
+    local hoverW = cellW - 6
+    local hoverH = (panelW >= 440) and 88 or 72
+
+    local labelMeter = SKIN:GetMeter('AppLabel_' .. idx)
+    if labelMeter and panelW >= 440 then
+        local textLen = #(labelMeter:GetOption('Text') or '')
+        if textLen <= 13 then
+            hoverH = 74
+        elseif textLen <= 26 then
+            hoverH = 88
+        else
+            hoverH = 96
+        end
+    end
+
+    local relBoxX = padX + (col * cellW) + 3
+    local relBoxY = baseIconY - 6
+
+    local bangs = {}
+    if hoveredIdx ~= idx then
+        hoveredIdx = idx
+        bangs[#bangs + 1] =
+            '[!SetVariable HoverX ' .. relBoxX .. ']' ..
+            '[!SetVariable HoverY ' .. relBoxY .. ']' ..
+            '[!SetVariable HoverW ' .. hoverW .. ']' ..
+            '[!SetVariable HoverH ' .. hoverH .. ']' ..
+            '[!ShowMeter HoverHighlight][!UpdateMeter HoverHighlight][!Redraw]'
+    end
+
+    hoverTarget = 1
+    hoverStartAlpha = hoverAlpha
+    hoverStartTime = os.clock()
+    bangs[#bangs + 1] = '[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]'
+    SKIN:Bang(table.concat(bangs))
+end
+
+function UnhoverApp(idx)
+    idx = tonumber(idx) or -1
+    if hoveredIdx ~= idx then return end
+
+    hoverTarget = 0
+    hoverStartAlpha = hoverAlpha
+    hoverStartTime = os.clock()
+    SKIN:Bang('[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]')
 end
 
 function SelectApp(idx)
@@ -199,30 +275,70 @@ function ApplyAnimFrame(p, skipRedraw)
 end
 
 function Update()
-    if animState == "idle" then return end
+    if animState ~= "idle" then
+        local elapsed = os.clock() - animStartTime
+        if animState == "opening" then
+            local p = animStartProgress + (elapsed / OPEN_DURATION)
+            if p >= 1 then
+                animProgress = 1
+                animState = "idle"
+                ApplyAnimFrame(1, false)
+                SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]')
+                return
+            end
+            animProgress = p
+            ApplyAnimFrame(p, false)
+        elseif animState == "closing" then
+            local p = animStartProgress - (elapsed / CLOSE_DURATION)
+            if p <= 0 then
+                animProgress = 0
+                animState = "idle"
+                FinishClose()
+                return
+            end
+            animProgress = p
+            ApplyAnimFrame(p, false)
+        end
+        return
+    end
 
-    local elapsed = os.clock() - animStartTime
-    if animState == "opening" then
-        local p = animStartProgress + (elapsed / OPEN_DURATION)
-        if p >= 1 then
-            animProgress = 1
-            animState = "idle"
-            ApplyAnimFrame(1, false)
-            SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]')
-            return
+    -- Smooth Windows Start-style hover fade when panel is idle
+    if hoverAlpha ~= hoverTarget then
+        local elapsed = os.clock() - hoverStartTime
+        local nextAlpha = hoverTarget
+        if hoverTarget > hoverStartAlpha then
+            local t = math.min(1, elapsed / HOVER_IN_DURATION)
+            local inv = 1 - t
+            nextAlpha = hoverStartAlpha + (1 - hoverStartAlpha) * (1 - inv * inv)
+        else
+            local t = math.min(1, elapsed / HOVER_OUT_DURATION)
+            nextAlpha = hoverStartAlpha * (1 - t)
         end
-        animProgress = p
-        ApplyAnimFrame(p, false)
-    elseif animState == "closing" then
-        local p = animStartProgress - (elapsed / CLOSE_DURATION)
-        if p <= 0 then
-            animProgress = 0
-            animState = "idle"
-            FinishClose()
-            return
+
+        hoverAlpha = math.floor(nextAlpha * 1000 + 0.5) / 1000
+        if math.abs(hoverAlpha - hoverTarget) < 0.01 then
+            hoverAlpha = hoverTarget
         end
-        animProgress = p
-        ApplyAnimFrame(p, false)
+
+        local bangs = {}
+        if hoverAlpha ~= lastHoverAlpha then
+            lastHoverAlpha = hoverAlpha
+            bangs[#bangs + 1] = '[!SetVariable HoverAlpha ' .. hoverAlpha .. '][!UpdateMeter HoverHighlight][!Redraw]'
+        end
+
+        if hoverAlpha == hoverTarget then
+            if hoverTarget == 0 then
+                hoveredIdx = -1
+                bangs[#bangs + 1] = '[!HideMeter HoverHighlight][!UpdateMeter HoverHighlight][!Redraw]'
+            end
+            bangs[#bangs + 1] = '[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]'
+        end
+
+        if #bangs > 0 then
+            SKIN:Bang(table.concat(bangs))
+        end
+    else
+        SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]')
     end
 end
 

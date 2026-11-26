@@ -18,6 +18,11 @@ PanelX=18
 PanelY=104
 IconOffsetX=0
 IconOffsetY=0
+HoverX=0
+HoverY=0
+HoverW=98
+HoverH=88
+HoverAlpha=0
 
 [MeasureToggle]
 Measure=Script
@@ -72,6 +77,16 @@ UnifiedInnerGlow=135 | 255,255,255,(Round(65 * #FolderAlphaScale# * #AnimAlpha# 
 Hidden=1
 DynamicVariables=1
 LeftMouseUpAction=[!CommandMeasure MeasureToggle "ClearSelection()"]
+
+[HoverHighlight]
+Meter=Shape
+Group=PanelContent
+X=((#PanelX# + #AnimShiftX# + (#HoverX# * #AnimScale#)) * #IsOpen#)
+Y=((#PanelY# + #AnimShiftY# + (#HoverY# * #AnimScale#)) * #IsOpen#)
+Shape=Rectangle 0,0,(#HoverW# * #AnimScale#),(#HoverH# * #AnimScale#),(10 * #AnimScale#) | Fill Color 255,255,255,(Round(28 * #HoverAlpha# * #AnimAlpha# / 255)) | StrokeWidth 1 | Stroke Color 255,255,255,(Round(55 * #HoverAlpha# * #AnimAlpha# / 255))
+Hidden=1
+DynamicVariables=1
+UpdateDivider=-1
 
 [SelectionHighlight]
 Meter=Shape
