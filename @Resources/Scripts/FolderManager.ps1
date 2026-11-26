@@ -100,7 +100,7 @@ function Show-FolderManager([ref]$Data) {
     $form.MinimumSize = New-Object Drawing.Size(800, 480)
     $form.AutoScaleMode = "Dpi"
     $form.StartPosition = "CenterScreen"
-    $form.TopMost = $true
+    $form.TopMost = $false
     $form.Font = New-Object Drawing.Font("Segoe UI", 9.5)
     $form.BackColor = [Drawing.Color]::FromArgb(245, 246, 248)
 
@@ -572,7 +572,31 @@ function Show-FolderManager([ref]$Data) {
             $Data.Value | Add-Member -NotePropertyName "animation" -NotePropertyValue $chosenAnim -Force
         }
 
-        script:Commit-ManagerChanges
+        Save-Data $Data.Value
+
+        # Fast in-place update of AnimStyle= in each Folder.ini (avoids full Write-Launcher rebuild)
+        $utf8 = New-Object System.Text.UTF8Encoding($false)
+        $skinName = Split-Path -Leaf $Root
+        $folderNames = @(Get-FolderDirectoryNames $Data.Value.folders)
+        $bangList = New-Object System.Collections.Generic.List[string]
+
+        foreach ($folderName in $folderNames) {
+            $iniPath = Join-Path $FolderRoot "$folderName\Folder.ini"
+            if (Test-Path $iniPath) {
+                $raw = [IO.File]::ReadAllText($iniPath, $utf8)
+                $updated = [Regex]::Replace($raw, '(?m)^AnimStyle=.*$', "AnimStyle=$chosenAnim")
+                if ($updated -ne $raw) {
+                    [IO.File]::WriteAllText($iniPath, $updated, $utf8)
+                }
+            }
+            $bangList.Add("[!SetVariable AnimStyle `"$chosenAnim`" `"$skinName\Folders\$folderName`"]")
+        }
+
+        # Single non-blocking Rainmeter.exe call for all folders at once
+        if ((Test-Path $RainmeterExe) -and $bangList.Count -gt 0) {
+            Start-Process -FilePath $RainmeterExe -ArgumentList ($bangList -join "") -WindowStyle Hidden
+        }
+
         $statusLabel.Text = "Applied '$chosenAnim' animation to all folders."
     })
 
@@ -778,7 +802,6 @@ function Show-FolderManager([ref]$Data) {
 
     Refresh-UI
     $form.Add_Shown({
-        $form.TopMost = $true
         $form.Activate()
         $form.BringToFront()
     })

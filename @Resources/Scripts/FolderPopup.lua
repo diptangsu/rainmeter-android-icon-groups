@@ -23,6 +23,7 @@ function Initialize()
     savedOrigX = nil
     savedOrigY = nil
     didMove = false
+    pendingRestore = false
 
     cachedStyle = "ExpandCollapse"
     cachedPanelW = 448
@@ -275,6 +276,17 @@ function ApplyAnimFrame(p, skipRedraw)
 end
 
 function Update()
+    if pendingRestore then
+        pendingRestore = false
+        local moveBang = ''
+        if savedOrigX ~= nil and savedOrigY ~= nil then
+            moveBang = '[!KeepOnScreen 0][!Move ' .. savedOrigX .. ' ' .. savedOrigY .. ']'
+        end
+        didMove = false
+        SKIN:Bang(moveBang .. '[!Draggable 1][!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle][!Redraw]')
+        return
+    end
+
     if animState ~= "idle" then
         local elapsed = os.clock() - animStartTime
         if animState == "opening" then
@@ -362,6 +374,12 @@ function OpenPanel()
 
     local rightEdge = workX + workW
     local bottomEdge = workY + workH
+
+    if pendingRestore then
+        pendingRestore = false
+        skinX = savedOrigX or skinX
+        skinY = savedOrigY or skinY
+    end
 
     if not isOpen then
         savedOrigX = skinX
@@ -457,31 +475,46 @@ function ClosePanel()
     end
 end
 
-function FinishClose()
+function FinishClose(immediate)
     isOpen = false
     animState = "idle"
     animProgress = 0
     lastScale, lastAlpha, lastShiftX, lastShiftY = 1, 0, 0, 0
 
-    -- Step 1: Collapse meters and shrink the dynamic window BEFORE any !Move bang
-    SKIN:Bang(
-        '[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]' ..
-        '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight]' ..
-        '[!SetVariable IsOpen 0]' ..
-        '[!SetVariable AnimScale 1][!SetVariable AnimAlpha 0]' ..
-        '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
-        '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
-        '[!SetVariable PanelX 18][!SetVariable PanelY 104]' ..
-        '[!KeepOnScreen 0][!UpdateMeter *]'
-    )
+    local curX = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGX#'))
+    local curY = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGY#'))
+    local needsMove = (savedOrigX ~= nil and savedOrigY ~= nil) and (didMove or curX ~= savedOrigX or curY ~= savedOrigY)
 
-    -- Step 2: Only move back if OpenPanel() actually shifted the window for a screen edge
-    if didMove and savedOrigX ~= nil and savedOrigY ~= nil then
-        SKIN:Bang('[!Move ' .. savedOrigX .. ' ' .. savedOrigY .. ']')
+    if needsMove and not immediate then
+        pendingRestore = true
+        SKIN:Bang(
+            '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]' ..
+            '[!SetVariable IsOpen 0]' ..
+            '[!SetVariable AnimScale 1][!SetVariable AnimAlpha 0]' ..
+            '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
+            '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
+            '[!SetVariable PanelX 18][!SetVariable PanelY 104]' ..
+            '[!KeepOnScreen 0][!UpdateMeter *][!Redraw]' ..
+            '[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]'
+        )
+    else
+        pendingRestore = false
+        didMove = false
+        SKIN:Bang(
+            '[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]' ..
+            '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]' ..
+            '[!SetVariable IsOpen 0]' ..
+            '[!SetVariable AnimScale 1][!SetVariable AnimAlpha 0]' ..
+            '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
+            '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
+            '[!SetVariable PanelX 18][!SetVariable PanelY 104]' ..
+            '[!KeepOnScreen 0][!UpdateMeter *][!Redraw]'
+        )
+        if needsMove then
+            SKIN:Bang('[!KeepOnScreen 0][!Move ' .. savedOrigX .. ' ' .. savedOrigY .. '][!Redraw]')
+        end
+        SKIN:Bang('[!Draggable 1]')
     end
-    didMove = false
-
-    SKIN:Bang('[!Draggable 1][!Redraw]')
 end
 
 function ClosePanelInstant()
@@ -490,8 +523,10 @@ function ClosePanelInstant()
         selectedIdx = -1
     end
     if isOpen then
-        FinishClose()
+        FinishClose(true)
     else
+        pendingRestore = false
+        didMove = false
         SKIN:Bang('[!Draggable 1][!KeepOnScreen 0]')
     end
 end
