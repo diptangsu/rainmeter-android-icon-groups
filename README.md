@@ -1,9 +1,6 @@
 # Android-style Dynamic Rainmeter Launcher
 
-A desktop-style launcher for Rainmeter, inspired by Android folders. It
-organizes applications and files into independently movable desktop folders.
-Open a folder to launch its shortcuts from an animated popup, and use the
-built-in folder browser to manage your layout.
+A desktop launcher for Rainmeter inspired by Android app folders. Group apps and files into independently movable folders that open into an animated popup grid, managed through a built-in folder browser.
 
 ## Why I wanted to make it
 
@@ -11,28 +8,23 @@ A friend of mine called my desktop ugly and cluttered and I agreed.
 
 ## Features
 
-- Create, rename, and delete folders from an all-folders overview
-- Add files and shortcuts with the Windows file browser or drag and drop from
-  File Explorer
-- Automatically extract icons for supported targets or use a custom PNG, ICO,
-  JPG, or BMP icon
-- Rename shortcuts and drag them within the settings grid to reorder them
-- Choose the animation used by folder popups: Expand/Collapse, Elastic Bounce,
-  Slide, Fade, or None
-- Open folders in a styled popup and launch shortcuts from an icon grid
-- Move each folder independently on the desktop; Rainmeter remembers its
-  position
-- Keep launcher configuration and shortcut paths locally in `Data.json`
+- **Folder management:** Create, rename, and delete folders from an all-folders overview.
+- **Easy shortcut import:** Add apps, files, or shortcuts via the file browser or drag and drop from File Explorer.
+- **Custom icons & reordering:** Automatically extract icons, import custom `PNG`/`ICO`/`JPG`/`BMP` images, and drag shortcuts to reorder them.
+- **Animations & hover effects:** Choose between `ExpandCollapse`, `ElasticBounce`, `Slide`, `Fade`, or `None`, with a Windows Start-style hover highlight on shortcut tiles.
+- **Opacity controls:** Adjust folder background and 2x2 preview icon transparency from the settings window.
+- **Independent positioning:** Move each folder anywhere on the desktop; Rainmeter remembers each position.
+- **Local storage:** Stores all folder layouts and shortcut paths locally in `@Resources\Data.json`.
 
 ## Screenshots and video
 
 ### Desktop
 
-Before organizing shortcuts into folders:
+Before:
 
 ![Desktop before using Android Icon Groups](Docs/desktop-before.png)
 
-The desktop with Android Icon Groups:
+After:
 
 ![Android Icon Groups on the desktop](Docs/desktop-after.png)
 
@@ -42,130 +34,110 @@ All-folders overview:
 
 ![Folder browser showing the all-folders overview](Docs/settings-ui.png)
 
-A folder selected for shortcut management:
+Folder selected for shortcut management:
 
 ![Folder browser showing shortcuts and animation settings](Docs/settings-ui-folder.png)
 
 ### Popup animation
 
-Watch the folder popup animation demo:
-
-
-
 https://github.com/user-attachments/assets/ca3c0eb9-39a6-45ed-a428-d71b3415b1a9
 
-
-
-[Open the animation recording](Docs/bounce-animation-recording.mp4).
+[Open the animation recording](Docs/bounce-animation-recording.mp4)
 
 ## Requirements
 
-- Windows
+- Windows 10 or later
 - [Rainmeter](https://www.rainmeter.net/)
 - Windows PowerShell
-- `.NET Framework` support for icon extraction and Windows Forms dialogs
+- `.NET Framework` (for icon extraction and Windows Forms dialogs)
 
 ## Installation
 
-1. Close or exit the AndroidIconGroups skins if they are already running.
-2. Copy the `AndroidIconGroups` folder into your Rainmeter skins directory,
-   normally:
+### Option 1: `.rmskin` Package (Recommended)
+
+1. Download the latest `.rmskin` file from the **Releases** page.
+2. Double-click the `.rmskin` file to install it in Rainmeter (`AndroidIconGroups\Launcher.ini` loads automatically).
+3. Click **Open folder browser** on the launcher skin to start configuring folders.
+
+### Option 2: Manual Installation
+
+1. Unload any active `AndroidIconGroups` skins.
+2. Copy the `AndroidIconGroups` folder into your Rainmeter skins directory:
 
    ```text
    %USERPROFILE%\Documents\Rainmeter\Skins\
    ```
 
-   If Rainmeter uses another skins directory, copy it there instead.
-3. Open **Rainmeter Manage**, click **Refresh all**, and load
-   `AndroidIconGroups\Launcher.ini`.
-4. Click **Open folder browser** on the launcher skin to create folders and
-   shortcuts in the settings window.
-5. Position each generated folder where desired. Rainmeter remembers the
-   location of each folder skin independently.
+3. Open **Manage Rainmeter**, click **Refresh all**, and load `AndroidIconGroups\Launcher.ini`.
+4. Click **Open folder browser** to manage folders and shortcuts.
 
-You can leave the folder browser open while configuring the launcher or close
-it when you are done.
+## Usage
 
-## First-time configuration
+First-time initialization creates starter folders named **Work** and **Games**. Drag each generated folder wherever you want on your desktop.
 
-The first initialization creates local folders named **Work** and **Games**.
-Use **All Folders (Overview)** and **Create Folder** to build your layout.
-Select a folder to add shortcuts, rename it, change its animation, or remove
-shortcuts. Drag files from File Explorer into the folder list or shortcut grid
-to add them.
-
-When adding a shortcut with the browser, select the target file, application,
-or Windows shortcut and enter the name shown in the launcher. You can rename
-shortcuts later from the settings window. Use **Change Icon** to choose a
-custom PNG, ICO, JPG, or BMP image.
-
-## Managing shortcuts and folders
-
-| Action | Description |
+| Action | How to do it |
 | --- | --- |
-| Create folder | Add a folder and generate its Rainmeter skin |
-| Rename folder or shortcut | Change the selected folder or shortcut's display name |
-| Add shortcut | Browse for a target or drag files from File Explorer |
-| Reorder shortcuts | Drag shortcuts to change their order in the folder |
-| Change icon | Replace a shortcut icon with a local image |
-| Remove shortcut | Remove an entry from the selected folder |
-| Choose animation | Set the popup animation used by folders |
-| Delete folder | Remove a folder and its launcher entries |
+| Create folder | Enter a name in the sidebar and click **+ Create Folder** |
+| Add shortcut | Select a folder and click **+ Add Shortcut(s)**, or drag files from File Explorer |
+| Reorder shortcuts | Drag and drop shortcuts inside the settings grid |
+| Rename | Select a folder or shortcut, edit the **Name** field, and click **Save Name** |
+| Change icon | Select a shortcut and click **Change Icon** (`PNG`, `ICO`, `JPG`, or `BMP`) |
+| Change animation | Pick a style from the **Animation** dropdown |
+| Adjust opacity | Use the **Folder Opacity** and **Preview Opacity** sliders |
+| Remove / Delete | Click **Remove Shortcut** or **Delete Folder** |
 
-Rainmeter skin files and extracted icons can be regenerated from the launcher
-configuration. Do not manually edit generated folder INI files unless you
-intend to regenerate them afterward.
+> Avoid manually editing generated `Folder.ini` files; they are overwritten whenever settings change.
 
-## Local files and generated files
+## Regenerating folders from `Data.json`
 
-The following files are created or updated locally by the launcher:
+Rebuild all `Folder.ini` files from `@Resources\Data.json` (keeps existing icons):
 
-| Path | Purpose |
-| --- | --- |
-| `@Resources\Data.json` | Launcher folders, shortcut targets, names, and icon references |
-| `@Resources\FolderState.txt` | Last-known generated folder state |
-| `Folders\<name>\Folder.ini` | Generated Rainmeter skin for each folder |
-| `@Resources\Icons\app_*.png` | Automatically extracted shortcut icons |
-| `@Resources\Icons\custom_*.png` | Icons imported through the custom-icon controls |
+```pwsh
+powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "$HOME\Documents\Rainmeter\Skins\AndroidIconGroups\@Resources\Scripts\FolderManager.ps1" -Action ResetLayout
+```
 
-Back up `@Resources\Data.json` before moving the skin to another computer or
-restoring an older copy. Shortcut paths are local Windows paths and may need
-to be re-added if the target location differs.
-
-## Development
-
-The core files are:
-
-- `Launcher.ini` - launcher skin and entry point to the folder browser
-- `@Resources\Scripts\FolderManager.ps1` - configuration and skin generation
-- `@Resources\Scripts\FolderPopup.lua` - folder popup and animation behavior
-- `@Resources\Scripts\LoadFolders.lua` - Rainmeter folder-loading behavior
-- `@Resources\FolderTemplate.inc` - shared generated-folder template
-
-Screenshots and the popup animation recording shown above are in `Docs/`.
-
-Generated configuration, state, and extracted/custom icon files are ignored
-by Git. Static artwork in `@Resources\Icons` remains included.
-
-## Regenerating folders from Data.json
-
-The script stores all folder configurations in `@Resources/Data.json`. All folders can be force re-generated using this powershell command.
+Rebuild all `Folder.ini` files and re-extract shortcut icons:
 
 ```pwsh
 powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "$HOME\Documents\Rainmeter\Skins\AndroidIconGroups\@Resources\Scripts\FolderManager.ps1" -Action Initialize
 ```
 
+## File structure
+
+### Core files
+
+- `Launcher.ini` — Entry point skin to open the folder browser
+- `@Resources\FolderTemplate.inc` — Shared layout and styling template for generated folders
+- `@Resources\Scripts\FolderManager.ps1` — Settings UI, icon extraction, and skin generator
+- `@Resources\Scripts\FolderPopup.lua` — Popup animations, hover highlights, and positioning logic
+- `@Resources\Scripts\LoadFolders.lua` — Loads generated folder skins on startup
+- `Icons\` — Static fallback icons (`folder.png`, `app_default.png`)
+- `Docs\` — Screenshots and demo video
+
+### Local generated files (ignored by Git)
+
+| Path | Purpose |
+| --- | --- |
+| `@Resources\Data.json` | Folders, shortcut paths, names, animation, and opacity settings |
+| `@Resources\FolderState.txt` | Last-known generated folder list |
+| `Folders\<name>\Folder.ini` | Generated Rainmeter skin for each folder |
+| `Icons\app_*.png` | Extracted shortcut icons |
+| `Icons\custom_*.png` | User-imported custom icons |
+
+Back up `@Resources\Data.json` before moving the skin to another PC. Shortcut paths are machine-specific and may need to be re-added if paths differ.
+
+## Release process
+
+Pushing a version tag triggers GitHub Actions to build the `.rmskin` package and publish a GitHub Release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
 ## Notes and limitations
 
-- This is a launcher overlay; deleting an entry does not delete its original
-  application, file, or Windows shortcut.
-- Folder skins are regenerated when configuration changes.
-- Dragging a shortcut in the folder browser changes its order; dragging a file
-  from File Explorer adds it to the selected folder.
-- Icon extraction depends on Windows and the target file type. Some packaged
-  applications, network targets, and unusual file formats may fall back to a
-  generic icon.
-- The settings actions launch Windows Forms and require a desktop session.
-- Some organization-managed systems block PowerShell scripts or custom
-  execution policies. In that case, the script may require an approved policy
-  or a signed launcher helper.
+- Deleting a folder or shortcut only removes it from the launcher, not from disk.
+- Icon extraction depends on Windows; some packaged apps or network targets may fall back to `app_default.png`.
+- The settings UI uses Windows Forms and requires an active desktop session.
+- Managed systems with strict PowerShell execution policies may block `FolderManager.ps1`.
