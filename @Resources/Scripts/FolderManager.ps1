@@ -35,7 +35,10 @@ if ($consoleHwnd -ne [IntPtr]::Zero) {
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Resource = Join-Path $Root "@Resources"
 $DataFile = Join-Path $Resource "Data.json"
-$IconDir = Join-Path $Resource "Icons"
+$IconDir = Join-Path $Root "Icons"
+if (!(Test-Path $IconDir)) {
+    New-Item -ItemType Directory -Path $IconDir -Force | Out-Null
+}
 $FolderRoot = Join-Path $Root "Folders"
 $FolderTemplate = Join-Path $Resource "FolderTemplate.inc"
 $RainmeterExe = Join-Path $env:ProgramFiles "Rainmeter\Rainmeter.exe"
@@ -1014,7 +1017,7 @@ function Write-Launcher($Data) {
 
             $folderLines.Add("[FolderPreview_${p}]")
             $folderLines.Add("Meter=Image")
-            $folderLines.Add("ImageName=#@#Icons\$pIcon")
+            $folderLines.Add("ImageName=#ROOTCONFIGPATH#Icons\$pIcon")
             $folderLines.Add("X=($px + #IconOffsetX#)")
             $folderLines.Add("Y=($py + #IconOffsetY#)")
             $folderLines.Add("W=16")
@@ -1063,7 +1066,7 @@ function Write-Launcher($Data) {
             $folderLines.Add("[AppIcon_${j}]")
             $folderLines.Add("Meter=Image")
             $folderLines.Add("Group=PanelContent")
-            $folderLines.Add("ImageName=#@#Icons\$iconName")
+            $folderLines.Add("ImageName=#ROOTCONFIGPATH#Icons\$iconName")
             $folderLines.Add("X=((#PanelX# + #AnimShiftX# + ($relIconX * #AnimScale#)) * #IsOpen#)")
             $folderLines.Add("Y=((#PanelY# + #AnimShiftY# + ($relIconY * #AnimScale#)) * #IsOpen#)")
             $folderLines.Add("W=(40 * #AnimScale# * #IsOpen#)")
