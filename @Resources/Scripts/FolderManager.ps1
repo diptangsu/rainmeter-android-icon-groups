@@ -166,7 +166,7 @@ function Show-FolderManager([ref]$Data) {
 
     $mainTop = New-Object Windows.Forms.Panel
     $mainTop.Dock = "Top"
-    $mainTop.Height = 114
+    $mainTop.Height = 150
 
     $breadcrumb = New-Object Windows.Forms.Label
     $breadcrumb.Location = New-Object Drawing.Point(0, 0)
@@ -206,10 +206,41 @@ function Show-FolderManager([ref]$Data) {
     $animCombo.DropDownStyle = "DropDownList"
     [void]$animCombo.Items.AddRange(@("ExpandCollapse", "ElasticBounce", "Slide", "Fade", "None"))
 
+    $initFOp = if ($Data.Value.PSObject.Properties['folderOpacity'] -and $null -ne $Data.Value.folderOpacity) { [int]$Data.Value.folderOpacity } else { 100 }
+    $initPOp = if ($Data.Value.PSObject.Properties['previewOpacity'] -and $null -ne $Data.Value.previewOpacity) { [int]$Data.Value.previewOpacity } else { 92 }
+
+    $folderOpLabel = New-Object Windows.Forms.Label
+    $folderOpLabel.Text = "Folder Opacity: ${initFOp}%"
+    $folderOpLabel.Location = New-Object Drawing.Point(0, 114)
+    $folderOpLabel.Size = New-Object Drawing.Size(132, 22)
+
+    $folderOpSlider = New-Object Windows.Forms.TrackBar
+    $folderOpSlider.Location = New-Object Drawing.Point(132, 110)
+    $folderOpSlider.Size = New-Object Drawing.Size(150, 28)
+    $folderOpSlider.Minimum = 10
+    $folderOpSlider.Maximum = 100
+    $folderOpSlider.TickStyle = "None"
+    $folderOpSlider.AutoSize = $false
+    $folderOpSlider.Value = [Math]::Max(10, [Math]::Min(100, $initFOp))
+
+    $prevOpLabel = New-Object Windows.Forms.Label
+    $prevOpLabel.Text = "Preview Opacity: ${initPOp}%"
+    $prevOpLabel.Location = New-Object Drawing.Point(302, 114)
+    $prevOpLabel.Size = New-Object Drawing.Size(138, 22)
+
+    $prevOpSlider = New-Object Windows.Forms.TrackBar
+    $prevOpSlider.Location = New-Object Drawing.Point(440, 110)
+    $prevOpSlider.Size = New-Object Drawing.Size(150, 28)
+    $prevOpSlider.Minimum = 0
+    $prevOpSlider.Maximum = 100
+    $prevOpSlider.TickStyle = "None"
+    $prevOpSlider.AutoSize = $false
+    $prevOpSlider.Value = [Math]::Max(0, [Math]::Min(100, $initPOp))
+
     $mainTop.Controls.AddRange(@(
         $breadcrumb, $backButton, $addShortcutButton, $customIconButton,
         $removeButton, $deleteFolderButton, $renameLabel, $renameBox, $renameButton,
-        $animLabel, $animCombo
+        $animLabel, $animCombo, $folderOpLabel, $folderOpSlider, $prevOpLabel, $prevOpSlider
     ))
 
     $statusLabel = New-Object Windows.Forms.Label
@@ -542,6 +573,30 @@ function Show-FolderManager([ref]$Data) {
         $statusLabel.Text = "Applied '$chosenAnim' animation to all folders."
     })
 
+    $folderOpSlider.Add_Scroll({
+        $folderOpLabel.Text = "Folder Opacity: $($folderOpSlider.Value)%"
+    })
+    $folderOpSlider.Add_MouseUp({
+        $val = [int]$folderOpSlider.Value
+        if ([int]$Data.Value.folderOpacity -ne $val) {
+            $Data.Value.folderOpacity = $val
+            script:Commit-ManagerChanges
+            $statusLabel.Text = "Updated folder opacity to ${val}%."
+        }
+    })
+
+    $prevOpSlider.Add_Scroll({
+        $prevOpLabel.Text = "Preview Opacity: $($prevOpSlider.Value)%"
+    })
+    $prevOpSlider.Add_MouseUp({
+        $val = [int]$prevOpSlider.Value
+        if ([int]$Data.Value.previewOpacity -ne $val) {
+            $Data.Value.previewOpacity = $val
+            script:Commit-ManagerChanges
+            $statusLabel.Text = "Updated folder preview opacity to ${val}%."
+        }
+    })
+
     $customIconButton.Add_Click({
         if ([string]::IsNullOrEmpty($script:selectedFolderId) -or $grid.SelectedItems.Count -eq 0) { return }
         $appId = [string]$grid.SelectedItems[0].Tag
@@ -752,6 +807,12 @@ function Load-Data {
             $data | Add-Member -NotePropertyName "animation" -NotePropertyValue "ExpandCollapse" -Force
         }
     }
+    if (!$data.PSObject.Properties['folderOpacity'] -or $null -eq $data.folderOpacity) {
+        $data | Add-Member -NotePropertyName "folderOpacity" -NotePropertyValue 100 -Force
+    }
+    if (!$data.PSObject.Properties['previewOpacity'] -or $null -eq $data.previewOpacity) {
+        $data | Add-Member -NotePropertyName "previewOpacity" -NotePropertyValue 92 -Force
+    }
     return $data
 }
 
@@ -873,6 +934,11 @@ function Write-Launcher($Data) {
     $animMode = if ($Data.PSObject.Properties['animation'] -and $Data.animation) { [string]$Data.animation } else { "ExpandCollapse" }
     $validNames = @(Get-FolderDirectoryNames $folders)
 
+    $fOp = if ($Data.PSObject.Properties['folderOpacity'] -and $null -ne $Data.folderOpacity) { [int]$Data.folderOpacity } else { 100 }
+    $pOp = if ($Data.PSObject.Properties['previewOpacity'] -and $null -ne $Data.previewOpacity) { [int]$Data.previewOpacity } else { 92 }
+    $folderAlphaScale = [Math]::Round($fOp / 100.0, 2).ToString([System.Globalization.CultureInfo]::InvariantCulture)
+    $previewAlpha = [int][Math]::Round(255 * ($pOp / 100.0))
+
     # Only delete directories for folders that were removed from Data.json
     Get-ChildItem -LiteralPath $FolderRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.Name -notin $validNames) {
@@ -918,6 +984,8 @@ function Write-Launcher($Data) {
         $folderLines.Add("FolderID=$folderId")
         $folderLines.Add("FolderName=$(Escape-Ini ([string]$folder.name))")
         $folderLines.Add("AnimStyle=$animMode")
+        $folderLines.Add("FolderAlphaScale=$folderAlphaScale")
+        $folderLines.Add("PreviewAlpha=$previewAlpha")
 
         $apps = @($folder.shortcuts)
         $appCols = 4
@@ -930,6 +998,7 @@ function Write-Launcher($Data) {
         $folderLines.Add("FolderPath=#CURRENTCONFIGDIR#")
         $folderLines.Add("")
         $folderLines.Add("@Include=#@#FolderTemplate.inc")
+        $folderLines.Add("ImageAlpha=#PreviewAlpha#")
         $folderLines.Add("")
 
         # 2x2 Mini-Icon Folder Preview
@@ -1041,6 +1110,11 @@ function Refresh-Skin {
     if (Test-Path $RainmeterExe) {
         $data = Load-Data
         $animMode = if ($data.PSObject.Properties['animation'] -and $data.animation) { [string]$data.animation } else { "ExpandCollapse" }
+        $fOp = if ($data.PSObject.Properties['folderOpacity'] -and $null -ne $data.folderOpacity) { [int]$data.folderOpacity } else { 100 }
+        $pOp = if ($data.PSObject.Properties['previewOpacity'] -and $null -ne $data.previewOpacity) { [int]$data.previewOpacity } else { 92 }
+        $folderAlphaScale = [Math]::Round($fOp / 100.0, 2).ToString([System.Globalization.CultureInfo]::InvariantCulture)
+        $previewAlpha = [int][Math]::Round(255 * ($pOp / 100.0))
+
         $skinName = Split-Path -Leaf $Root
         foreach ($folderName in @(Get-FolderDirectoryNames $data.folders)) {
             $iniPath = Join-Path $FolderRoot "$folderName\Folder.ini"
@@ -1049,6 +1123,8 @@ function Refresh-Skin {
                 Start-Process -FilePath $RainmeterExe -ArgumentList "!ActivateConfig `"$cfg`" `"Folder.ini`"" -WindowStyle Hidden
                 Start-Sleep -Milliseconds 35
                 Start-Process -FilePath $RainmeterExe -ArgumentList "!SetVariable AnimStyle `"$animMode`" `"$cfg`"" -WindowStyle Hidden
+                Start-Process -FilePath $RainmeterExe -ArgumentList "!SetVariable FolderAlphaScale `"$folderAlphaScale`" `"$cfg`"" -WindowStyle Hidden
+                Start-Process -FilePath $RainmeterExe -ArgumentList "!SetVariable PreviewAlpha `"$previewAlpha`" `"$cfg`"" -WindowStyle Hidden
                 Start-Process -FilePath $RainmeterExe -ArgumentList "!Refresh `"$cfg`"" -WindowStyle Hidden
             }
         }

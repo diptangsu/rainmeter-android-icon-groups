@@ -1,11 +1,28 @@
+local OPEN_DURATION = 0.16
+local CLOSE_DURATION = 0.12
+
 function Initialize()
     isOpen = false
     animState = "idle" -- "idle", "opening", "closing"
+    animStartTime = 0
+    animStartProgress = 0
     animProgress = 0
     openLeft = false
     openUp = false
     selectedIdx = -1
-    SKIN:Bang('!KeepOnScreen', '0')
+
+    -- Cached per-toggle values to avoid SKIN:GetVariable() inside the 60 FPS loop
+    cachedStyle = "ExpandCollapse"
+    cachedPanelW = 448
+    cachedPanelH = 146
+
+    -- Dirty-tracking to skip redundant !SetVariable bangs
+    lastScale = -1
+    lastAlpha = -1
+    lastShiftX = -9999
+    lastShiftY = -9999
+
+    SKIN:Bang('[!KeepOnScreen 0][!Draggable 1][!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]')
 end
 
 function TogglePanel()
@@ -16,32 +33,36 @@ function TogglePanel()
     end
 end
 
+local function GetGridMetrics()
+    local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
+    if panelW >= 440 then
+        return panelW, 104, 98, 16, 48, 45
+    end
+    return panelW, 84, 76, 14, 48, 44
+end
+
 function RestoreIcon(idx)
     if idx == nil or idx < 0 then return end
     local col = idx % 4
     local row = math.floor(idx / 4)
-
-    -- Auto-detect whether this Folder.ini uses 104x98 (PanelWidth 448) or 84x76 (PanelWidth 364)
-    local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
-    local cellW = (panelW >= 440) and 104 or 84
-    local cellH = (panelW >= 440) and 98 or 76
-    local padX  = (panelW >= 440) and 16 or 14
-    local padY  = 48
-    local labelOffset = (panelW >= 440) and 45 or 44
+    local _, cellW, cellH, padX, padY, labelOffset = GetGridMetrics()
 
     local relIconX = padX + (col * cellW) + math.floor(cellW / 2) - 20
     local relIconY = padY + (row * cellH)
     local relLabelY = relIconY + labelOffset
 
-    -- Use [#Var] syntax so Rainmeter does NOT bake #AnimScale#=1 at the moment !SetOption runs
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'X', '(([#PanelX] + [#AnimShiftX] + (' .. relIconX .. ' * [#AnimScale])) * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. relIconY .. ' * [#AnimScale])) * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'W', '(40 * [#AnimScale] * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'H', '(40 * [#AnimScale] * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. relLabelY .. ' * [#AnimScale])) * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'FontWeight', '400')
-    SKIN:Bang('!UpdateMeter', 'AppIcon_' .. idx)
-    SKIN:Bang('!UpdateMeter', 'AppLabel_' .. idx)
+    local iconName = 'AppIcon_' .. idx
+    local labelName = 'AppLabel_' .. idx
+
+    SKIN:Bang(
+        '[!SetOption ' .. iconName .. ' X "(([#PanelX] + [#AnimShiftX] + (' .. relIconX .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption ' .. iconName .. ' Y "(([#PanelY] + [#AnimShiftY] + (' .. relIconY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption ' .. iconName .. ' W "(40 * [#AnimScale] * [#IsOpen])"]' ..
+        '[!SetOption ' .. iconName .. ' H "(40 * [#AnimScale] * [#IsOpen])"]' ..
+        '[!SetOption ' .. labelName .. ' Y "(([#PanelY] + [#AnimShiftY] + (' .. relLabelY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption ' .. labelName .. ' FontWeight "400"]' ..
+        '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. ']'
+    )
 end
 
 function SelectApp(idx)
@@ -57,16 +78,9 @@ function SelectApp(idx)
     end
 
     selectedIdx = idx
-    local panelX = tonumber(SKIN:GetVariable('PanelX')) or 18
-    local panelY = tonumber(SKIN:GetVariable('PanelY')) or 104
     local col = idx % 4
     local row = math.floor(idx / 4)
-
-    local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
-    local cellW = (panelW >= 440) and 104 or 84
-    local cellH = (panelW >= 440) and 98 or 76
-    local padX  = (panelW >= 440) and 16 or 14
-    local padY  = 48
+    local panelW, cellW, cellH, padX, padY = GetGridMetrics()
 
     local baseIconX = padX + (col * cellW) + math.floor(cellW / 2) - 20
     local baseIconY = padY + (row * cellH)
@@ -74,22 +88,14 @@ function SelectApp(idx)
     local expIconY = baseIconY - 3
     local expLabelY = baseIconY + 48
 
-    -- Use [#Var] syntax so the expanded icon still scales from the folder origin if animated
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'X', '(([#PanelX] + [#AnimShiftX] + (' .. expIconX .. ' * [#AnimScale])) * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. expIconY .. ' * [#AnimScale])) * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'W', '(46 * [#AnimScale] * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppIcon_' .. idx, 'H', '(46 * [#AnimScale] * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. expLabelY .. ' * [#AnimScale])) * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'AppLabel_' .. idx, 'FontWeight', '600')
-    SKIN:Bang('!UpdateMeter', 'AppIcon_' .. idx)
-    SKIN:Bang('!UpdateMeter', 'AppLabel_' .. idx)
+    local iconName = 'AppIcon_' .. idx
+    local labelName = 'AppLabel_' .. idx
 
-    local labelMeter = SKIN:GetMeter('AppLabel_' .. idx)
+    local labelMeter = SKIN:GetMeter(labelName)
     local selW = cellW - 6
     local selH = (panelW >= 440) and 88 or 72
     if labelMeter and panelW >= 440 then
-        local textVal = labelMeter:GetOption('Text') or ''
-        local textLen = string.len(textVal)
+        local textLen = #(labelMeter:GetOption('Text') or '')
         if textLen <= 13 then
             selH = 74
         elseif textLen <= 26 then
@@ -102,13 +108,20 @@ function SelectApp(idx)
     local relBoxX = padX + (col * cellW) + 3
     local relBoxY = baseIconY - 6
 
-    SKIN:Bang('!SetVariable', 'SelW', selW)
-    SKIN:Bang('!SetVariable', 'SelH', selH)
-    SKIN:Bang('!SetOption', 'SelectionHighlight', 'X', '(([#PanelX] + [#AnimShiftX] + (' .. relBoxX .. ' * [#AnimScale])) * [#IsOpen])')
-    SKIN:Bang('!SetOption', 'SelectionHighlight', 'Y', '(([#PanelY] + [#AnimShiftY] + (' .. relBoxY .. ' * [#AnimScale])) * [#IsOpen])')
-    SKIN:Bang('!ShowMeter', 'SelectionHighlight')
-    SKIN:Bang('!UpdateMeter', 'SelectionHighlight')
-    SKIN:Bang('!Redraw')
+    SKIN:Bang(
+        '[!SetOption ' .. iconName .. ' X "(([#PanelX] + [#AnimShiftX] + (' .. expIconX .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption ' .. iconName .. ' Y "(([#PanelY] + [#AnimShiftY] + (' .. expIconY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption ' .. iconName .. ' W "(46 * [#AnimScale] * [#IsOpen])"]' ..
+        '[!SetOption ' .. iconName .. ' H "(46 * [#AnimScale] * [#IsOpen])"]' ..
+        '[!SetOption ' .. labelName .. ' Y "(([#PanelY] + [#AnimShiftY] + (' .. expLabelY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption ' .. labelName .. ' FontWeight "600"]' ..
+        '[!SetVariable SelW ' .. selW .. ']' ..
+        '[!SetVariable SelH ' .. selH .. ']' ..
+        '[!SetOption SelectionHighlight X "(([#PanelX] + [#AnimShiftX] + (' .. relBoxX .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!SetOption SelectionHighlight Y "(([#PanelY] + [#AnimShiftY] + (' .. relBoxY .. ' * [#AnimScale])) * [#IsOpen])"]' ..
+        '[!ShowMeter SelectionHighlight]' ..
+        '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. '][!UpdateMeter SelectionHighlight][!Redraw]'
+    )
 end
 
 function ClearSelection()
@@ -116,86 +129,97 @@ function ClearSelection()
         RestoreIcon(selectedIdx)
         selectedIdx = -1
     end
-    SKIN:Bang('!HideMeter', 'SelectionHighlight')
-    SKIN:Bang('!UpdateMeter', 'SelectionHighlight')
-    SKIN:Bang('!Redraw')
+    SKIN:Bang('[!HideMeter SelectionHighlight][!UpdateMeter SelectionHighlight][!Redraw]')
 end
 
-function ApplyAnimFrame(p)
-    local style = SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'
-    style = style:gsub('%s+', '')
-    local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 364
-    local panelH = tonumber(SKIN:GetVariable('PanelHeight')) or 136
+function ApplyAnimFrame(p, skipRedraw)
+    local style = cachedStyle
+    local inv = 1 - p
+    local ease = 1 - (inv * inv * inv) -- Faster than math.pow(1 - p, 3)
 
-    local ease = 1 - math.pow(1 - p, 3)
     local scale = 1
-    local alpha = math.max(0, math.min(255, math.floor(255 * ease)))
+    local alpha = math.floor(255 * ease + 0.5)
     local shiftX = 0
     local shiftY = 0
 
     if style == 'ExpandCollapse' then
         scale = 0.20 + (0.80 * ease)
-        shiftX = openLeft and math.floor((1 - scale) * (panelW - 38)) or math.floor((1 - scale) * 20)
-        shiftY = openUp and math.floor((1 - scale) * panelH) or math.floor(-(1 - scale) * 28)
+        shiftX = openLeft and math.floor((1 - scale) * (cachedPanelW - 38)) or math.floor((1 - scale) * 20)
+        shiftY = openUp and math.floor((1 - scale) * cachedPanelH) or math.floor(-(1 - scale) * 28)
     elseif style == 'ElasticBounce' then
-        -- Overshoot spring curve (peaks around 1.12x scale before settling at 1.0x)
-        local c1 = 2.6
-        local c3 = c1 + 1
-        local backEase = 1 + c3 * math.pow(p - 1, 3) + c1 * math.pow(p - 1, 2)
-        scale = math.max(0.15, 0.20 + (0.80 * backEase))
-        alpha = math.max(0, math.min(255, math.floor(255 * math.min(1, p * 1.8))))
-        shiftX = openLeft and math.floor((1 - scale) * (panelW - 38)) or math.floor((1 - scale) * 20)
-        shiftY = openUp and math.floor((1 - scale) * panelH) or math.floor(-(1 - scale) * 28)
+        local pm1 = p - 1
+        local backEase = 1 + 3.6 * (pm1 * pm1 * pm1) + 2.6 * (pm1 * pm1)
+        scale = 0.20 + (0.80 * backEase)
+        if scale < 0.15 then scale = 0.15 end
+        local a = p * 1.8
+        alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
+        shiftX = openLeft and math.floor((1 - scale) * (cachedPanelW - 38)) or math.floor((1 - scale) * 20)
+        shiftY = openUp and math.floor((1 - scale) * cachedPanelH) or math.floor(-(1 - scale) * 28)
     elseif style == 'Slide' then
-        -- Pure slide at 100% full scale (no shrinking/expanding)
-        scale = 1
         local dist = math.floor((1 - ease) * 75)
         shiftX = openLeft and dist or -math.floor(dist * 0.35)
         shiftY = openUp and dist or -dist
     elseif style == 'Fade' then
-        -- Pure opacity fade in place at 100% scale and 0 position shift
-        scale = 1
-        shiftX = 0
-        shiftY = 0
-        alpha = math.max(0, math.min(255, math.floor(255 * p)))
+        alpha = math.floor(255 * p + 0.5)
     else -- 'None'
-        scale = 1
-        alpha = p >= 0.5 and 255 or 0
-        shiftX = 0
-        shiftY = 0
+        alpha = (p >= 0.5) and 255 or 0
     end
 
-    SKIN:Bang('!SetVariable', 'AnimScale', scale)
-    SKIN:Bang('!SetVariable', 'AnimAlpha', alpha)
-    SKIN:Bang('!SetVariable', 'AnimShiftX', shiftX)
-    SKIN:Bang('!SetVariable', 'AnimShiftY', shiftY)
-    SKIN:Bang('!UpdateMeterGroup', 'PanelContent')
-    SKIN:Bang('!Redraw')
+    -- Clamp alpha and round scale to 3 decimals to avoid micro-updates
+    if alpha < 0 then alpha = 0 elseif alpha > 255 then alpha = 255 end
+    scale = math.floor(scale * 1000 + 0.5) / 1000
+
+    local bangs = {}
+    if scale ~= lastScale then
+        lastScale = scale
+        bangs[#bangs + 1] = '[!SetVariable AnimScale ' .. scale .. ']'
+    end
+    if alpha ~= lastAlpha then
+        lastAlpha = alpha
+        bangs[#bangs + 1] = '[!SetVariable AnimAlpha ' .. alpha .. ']'
+    end
+    if shiftX ~= lastShiftX then
+        lastShiftX = shiftX
+        bangs[#bangs + 1] = '[!SetVariable AnimShiftX ' .. shiftX .. ']'
+    end
+    if shiftY ~= lastShiftY then
+        lastShiftY = shiftY
+        bangs[#bangs + 1] = '[!SetVariable AnimShiftY ' .. shiftY .. ']'
+    end
+
+    if #bangs > 0 then
+        if not skipRedraw then
+            bangs[#bangs + 1] = '[!UpdateMeterGroup PanelContent][!Redraw]'
+        end
+        SKIN:Bang(table.concat(bangs))
+    end
 end
 
 function Update()
     if animState == "idle" then return end
 
+    local elapsed = os.clock() - animStartTime
     if animState == "opening" then
-        animProgress = animProgress + 0.11
-        if animProgress >= 1 then
+        local p = animStartProgress + (elapsed / OPEN_DURATION)
+        if p >= 1 then
             animProgress = 1
             animState = "idle"
-            ApplyAnimFrame(1)
-            SKIN:Bang('!SetOption', 'MeasureToggle', 'UpdateDivider', '60')
-            SKIN:Bang('!UpdateMeasure', 'MeasureToggle')
+            ApplyAnimFrame(1, false)
+            SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]')
             return
         end
-        ApplyAnimFrame(animProgress)
+        animProgress = p
+        ApplyAnimFrame(p, false)
     elseif animState == "closing" then
-        animProgress = animProgress - 0.14
-        if animProgress <= 0 then
+        local p = animStartProgress - (elapsed / CLOSE_DURATION)
+        if p <= 0 then
             animProgress = 0
             animState = "idle"
             FinishClose()
             return
         end
-        ApplyAnimFrame(animProgress)
+        animProgress = p
+        ApplyAnimFrame(p, false)
     end
 end
 
@@ -206,31 +230,33 @@ function OpenPanel()
         selectedIdx = -1
     end
 
-    local style = SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'
+    -- Cache variables once per open
+    cachedStyle = (SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'):gsub('%s+', '')
+    cachedPanelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
+    cachedPanelH = tonumber(SKIN:GetVariable('PanelHeight')) or 146
+
     local skinX = tonumber(SKIN:GetVariable('CURRENTCONFIGX')) or 0
     local skinY = tonumber(SKIN:GetVariable('CURRENTCONFIGY')) or 0
     local workX = tonumber(SKIN:GetVariable('WORKAREAX')) or 0
     local workY = tonumber(SKIN:GetVariable('WORKAREAY')) or 0
     local workW = tonumber(SKIN:GetVariable('WORKAREAWIDTH')) or 1920
     local workH = tonumber(SKIN:GetVariable('WORKAREAHEIGHT')) or 1080
-    local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 364
-    local panelH = tonumber(SKIN:GetVariable('PanelHeight')) or 136
 
     local rightEdge = workX + workW
     local bottomEdge = workY + workH
 
+    local bangs = {}
+    local origX, origY
     if not isOpen then
-        SKIN:Bang('!SetVariable', 'OrigX', skinX)
-        SKIN:Bang('!SetVariable', 'OrigY', skinY)
+        origX = skinX
+        origY = skinY
+        bangs[#bangs + 1] = '[!SetVariable OrigX ' .. origX .. '][!SetVariable OrigY ' .. origY .. ']'
+    else
+        origX = tonumber(SKIN:GetVariable('OrigX')) or skinX
+        origY = tonumber(SKIN:GetVariable('OrigY')) or skinY
     end
 
     isOpen = true
-    SKIN:Bang('!SetVariable', 'IsOpen', 1)
-    SKIN:Bang('!KeepOnScreen', '0')
-    SKIN:Bang('!Draggable', '0')
-
-    local origX = tonumber(SKIN:GetVariable('OrigX')) or skinX
-    local origY = tonumber(SKIN:GetVariable('OrigY')) or skinY
     local newSkinX = origX
     local newSkinY = origY
     local iconOffsetX = 0
@@ -241,50 +267,54 @@ function OpenPanel()
     openLeft = false
     openUp = false
 
-    if (origX + 18 + panelW) > (rightEdge - 12) then
+    if (origX + 18 + cachedPanelW) > (rightEdge - 12) then
         openLeft = true
-        local shiftLeft = panelW - 76
+        local shiftLeft = cachedPanelW - 76
         newSkinX = origX - shiftLeft
         iconOffsetX = shiftLeft
         panelX = 18
     end
 
-    if (origY + 104 + panelH) > (bottomEdge - 12) then
+    if (origY + 104 + cachedPanelH) > (bottomEdge - 12) then
         openUp = true
-        local shiftUp = panelH + 12
+        local shiftUp = cachedPanelH + 12
         newSkinY = origY - shiftUp
         iconOffsetY = shiftUp
         panelY = 10
     end
 
-    SKIN:Bang('!SetVariable', 'IconOffsetX', iconOffsetX)
-    SKIN:Bang('!SetVariable', 'IconOffsetY', iconOffsetY)
-    SKIN:Bang('!SetVariable', 'PanelX', panelX)
-    SKIN:Bang('!SetVariable', 'PanelY', panelY)
+    bangs[#bangs + 1] =
+        '[!SetVariable IsOpen 1]' ..
+        '[!KeepOnScreen 0][!Draggable 0]' ..
+        '[!SetVariable IconOffsetX ' .. iconOffsetX .. ']' ..
+        '[!SetVariable IconOffsetY ' .. iconOffsetY .. ']' ..
+        '[!SetVariable PanelX ' .. panelX .. ']' ..
+        '[!SetVariable PanelY ' .. panelY .. ']'
 
     if newSkinX ~= skinX or newSkinY ~= skinY then
-        SKIN:Bang('!Move', newSkinX, newSkinY)
+        bangs[#bangs + 1] = '[!Move ' .. newSkinX .. ' ' .. newSkinY .. ']'
     end
 
-    SKIN:Bang('!ShowMeterGroup', 'PanelContent')
-    SKIN:Bang('!HideMeter', 'SelectionHighlight')
+    bangs[#bangs + 1] = '[!ShowMeterGroup PanelContent][!HideMeter SelectionHighlight]'
 
-    if instant or style == 'None' then
+    -- Reset dirty trackers so the first frame always pushes variables
+    lastScale, lastAlpha, lastShiftX, lastShiftY = -1, -1, -9999, -9999
+
+    if cachedStyle == 'None' then
         animState = "idle"
         animProgress = 1
-        ApplyAnimFrame(1)
-        SKIN:Bang('!SetOption', 'MeasureToggle', 'UpdateDivider', '60')
-        SKIN:Bang('!UpdateMeasure', 'MeasureToggle')
+        SKIN:Bang(table.concat(bangs))
+        ApplyAnimFrame(1, true)
+        SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]')
     else
         animState = "opening"
-        animProgress = 0.15
-        ApplyAnimFrame(animProgress)
-        SKIN:Bang('!SetOption', 'MeasureToggle', 'UpdateDivider', '1')
-        SKIN:Bang('!UpdateMeasure', 'MeasureToggle')
+        animStartProgress = (animProgress > 0 and animProgress < 1) and animProgress or 0.12
+        animProgress = animStartProgress
+        animStartTime = os.clock()
+        SKIN:Bang(table.concat(bangs))
+        ApplyAnimFrame(animProgress, true)
+        SKIN:Bang('[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]')
     end
-
-    SKIN:Bang('!UpdateMeter', '*')
-    SKIN:Bang('!Redraw')
 end
 
 function ClosePanel()
@@ -293,16 +323,18 @@ function ClosePanel()
         RestoreIcon(selectedIdx)
         selectedIdx = -1
     end
-    SKIN:Bang('!HideMeter', 'SelectionHighlight')
 
-    local style = SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'
-    if style == 'None' then
+    cachedStyle = (SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'):gsub('%s+', '')
+    cachedPanelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
+    cachedPanelH = tonumber(SKIN:GetVariable('PanelHeight')) or 146
+
+    if cachedStyle == 'None' then
         FinishClose()
     else
         animState = "closing"
-        if animProgress <= 0 then animProgress = 1 end
-        SKIN:Bang('!SetOption', 'MeasureToggle', 'UpdateDivider', '1')
-        SKIN:Bang('!UpdateMeasure', 'MeasureToggle')
+        animStartProgress = (animProgress > 0) and animProgress or 1
+        animStartTime = os.clock()
+        SKIN:Bang('[!HideMeter SelectionHighlight][!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]')
     end
 end
 
@@ -310,29 +342,22 @@ function FinishClose()
     isOpen = false
     animState = "idle"
     animProgress = 0
+    lastScale, lastAlpha, lastShiftX, lastShiftY = 1, 0, 0, 0
 
     local origX = tonumber(SKIN:GetVariable('OrigX'))
     local origY = tonumber(SKIN:GetVariable('OrigY'))
 
-    SKIN:Bang('!SetOption', 'MeasureToggle', 'UpdateDivider', '60')
-    SKIN:Bang('!HideMeterGroup', 'PanelContent')
-    SKIN:Bang('!HideMeter', 'SelectionHighlight')
-    SKIN:Bang('!SetVariable', 'IsOpen', 0)
-    SKIN:Bang('!SetVariable', 'AnimScale', 1)
-    SKIN:Bang('!SetVariable', 'AnimAlpha', 0)
-    SKIN:Bang('!SetVariable', 'AnimShiftX', 0)
-    SKIN:Bang('!SetVariable', 'AnimShiftY', 0)
-    SKIN:Bang('!SetVariable', 'IconOffsetX', 0)
-    SKIN:Bang('!SetVariable', 'IconOffsetY', 0)
-    SKIN:Bang('!SetVariable', 'PanelX', 18)
-    SKIN:Bang('!SetVariable', 'PanelY', 104)
+    local moveBang = (origX and origY) and ('[!Move ' .. origX .. ' ' .. origY .. ']') or ''
 
-    if origX and origY then
-        SKIN:Bang('!Move', origX, origY)
-    end
-
-    SKIN:Bang('!Draggable', '1')
-    SKIN:Bang('!KeepOnScreen', '0')
-    SKIN:Bang('!UpdateMeter', '*')
-    SKIN:Bang('!Redraw')
+    SKIN:Bang(
+        '[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]' ..
+        '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight]' ..
+        '[!SetVariable IsOpen 0]' ..
+        '[!SetVariable AnimScale 1][!SetVariable AnimAlpha 0]' ..
+        '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
+        '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
+        '[!SetVariable PanelX 18][!SetVariable PanelY 104]' ..
+        moveBang ..
+        '[!Draggable 1][!KeepOnScreen 0][!UpdateMeter *][!Redraw]'
+    )
 end
