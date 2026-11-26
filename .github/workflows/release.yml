@@ -1,0 +1,57 @@
+name: Build and Release RMSKIN
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Stage clean skin package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/Skins/AndroidIconGroups/@Resources/Scripts
+          mkdir -p dist/Skins/AndroidIconGroups/Icons
+
+          cp Launcher.ini dist/Skins/AndroidIconGroups/
+          cp @Resources/FolderTemplate.inc dist/Skins/AndroidIconGroups/@Resources/
+          cp @Resources/Scripts/*.ps1 dist/Skins/AndroidIconGroups/@Resources/Scripts/
+          cp @Resources/Scripts/*.lua dist/Skins/AndroidIconGroups/@Resources/Scripts/
+
+          # Ship only default fallback icons, never personal extracted icons
+          cp Icons/app_default.png dist/Skins/AndroidIconGroups/Icons/ 2>/dev/null || true
+          cp Icons/folder.png dist/Skins/AndroidIconGroups/Icons/ 2>/dev/null || true
+
+          cat <<EOF > dist/RMSKIN.ini
+          [rmskin]
+          Name=AndroidIconGroups
+          Author=${GITHUB_REPOSITORY_OWNER}
+          Version=${VERSION}
+          LoadType=Skin
+          Load=AndroidIconGroups\Launcher.ini
+          MinimumRainmeter=4.5.0
+          MinimumWindows=10.0
+          EOF
+
+      - name: Build .rmskin package
+        id: rmskin
+        uses: 2bndy5/rmskin-action@v2.0.4
+        with:
+          path: dist
+          dir-out: out
+          title: AndroidIconGroups
+          version: ${{ github.ref_name }}
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: out/*.rmskin
