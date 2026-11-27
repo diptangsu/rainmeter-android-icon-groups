@@ -63,13 +63,17 @@ After:
 
 ### Folder browser
 
-All-folders overview:
+All folders overview:
 
 ![Folder browser showing the all-folders overview](Docs/settings-ui.png)
 
-Folder selected for shortcut management:
+Single Folder overview:
 
 ![Folder browser showing shortcuts and animation settings](Docs/settings-ui-folder.png)
+
+Global settings overview:
+
+![Global settings showing animation style, grid layout and opacity sliders](Docs/style-settings.png)
 
 ## Project Structure
 
