@@ -16,3 +16,7 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+
+# Auto-generated runtime & machine-specific files
+@Resources/MonitorMetrics.lua
+@Resources/FolderState.txt

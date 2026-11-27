@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("Initialize","LoadFolders","Manage","AddFolder","RenameFolder","DeleteFolder","AddShortcut","RemoveShortcut","SetCustomIcon","ReorderShortcut","SetAnimation","ResetLayout")]
+    [ValidateSet("Initialize","LoadFolders","Manage","AddFolder","RenameFolder","DeleteFolder","AddShortcut","RemoveShortcut","SetCustomIcon","ReorderShortcut","SetAnimation","ResetLayout","SyncMonitors")]
     [string]$Action = "Initialize",
     [string]$FolderId = "",
     [int]$FromIndex = -1,
@@ -25,6 +25,142 @@ public class IconExtractor {
 }
 "@ -ErrorAction SilentlyContinue
 
+if (-not ([System.Management.Automation.PSTypeName]'MonitorMetricsHelper').Type) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+public class MonitorMetricsInfo {
+    public string Device;
+    public bool IsPrimary;
+    public int Dpi;
+    public int ScreenX;
+    public int ScreenY;
+    public int ScreenW;
+    public int ScreenH;
+    public int WorkX;
+    public int WorkY;
+    public int WorkW;
+    public int WorkH;
+}
+
+public class MonitorMetricsHelper {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct MONITORINFOEX {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string szDevice;
+    }
+
+    private delegate bool MonitorEnumDelegate(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumDelegate lpfnEnum, IntPtr dwData);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetProcessDpiAwareness(IntPtr hprocess, out int awareness);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    public static MonitorMetricsInfo[] GetMonitors() {
+        var result = new List<MonitorMetricsInfo>();
+        IntPtr prevCtx = IntPtr.Zero;
+        try {
+            // Switch only this thread temporarily to Per-Monitor-V2 to read true physical bounds & per-monitor DPI
+            prevCtx = SetThreadDpiAwarenessContext(new IntPtr(-4));
+        } catch { }
+
+        try {
+            EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, delegate(IntPtr hMon, IntPtr hdc, ref RECT rc, IntPtr data) {
+                var mi = new MONITORINFOEX();
+                mi.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
+                if (GetMonitorInfo(hMon, ref mi)) {
+                    uint dpiX = 96, dpiY = 96;
+                    try {
+                        if (GetDpiForMonitor(hMon, 0, out dpiX, out dpiY) != 0 || dpiX == 0) {
+                            dpiX = 96;
+                        }
+                    } catch {
+                        dpiX = 96;
+                    }
+                    result.Add(new MonitorMetricsInfo {
+                        Device = mi.szDevice ?? "",
+                        IsPrimary = (mi.dwFlags & 1u) != 0,
+                        Dpi = (int)dpiX,
+                        ScreenX = mi.rcMonitor.Left,
+                        ScreenY = mi.rcMonitor.Top,
+                        ScreenW = mi.rcMonitor.Right - mi.rcMonitor.Left,
+                        ScreenH = mi.rcMonitor.Bottom - mi.rcMonitor.Top,
+                        WorkX = mi.rcWork.Left,
+                        WorkY = mi.rcWork.Top,
+                        WorkW = mi.rcWork.Right - mi.rcWork.Left,
+                        WorkH = mi.rcWork.Bottom - mi.rcWork.Top
+                    });
+                }
+                return true;
+            }, IntPtr.Zero);
+        } finally {
+            if (prevCtx != IntPtr.Zero) {
+                try { SetThreadDpiAwarenessContext(prevCtx); } catch { }
+            }
+        }
+        return result.ToArray();
+    }
+
+    public static int GetRainmeterDpiAwareness() {
+        Process[] procs = null;
+        try {
+            procs = Process.GetProcessesByName("Rainmeter");
+            if (procs == null || procs.Length == 0) return -1;
+            IntPtr hProc = OpenProcess(0x1000u, false, procs[0].Id);
+            if (hProc == IntPtr.Zero) return -1;
+            try {
+                int awareness = -1;
+                if (GetProcessDpiAwareness(hProc, out awareness) == 0) {
+                    return awareness;
+                }
+            } finally {
+                CloseHandle(hProc);
+            }
+        } catch { } finally {
+            if (procs != null) {
+                foreach (var p in procs) {
+                    try { p.Dispose(); } catch { }
+                }
+            }
+        }
+        return -1;
+    }
+}
+"@
+}
+
 # Hide the black console window while allowing Windows Forms GUI windows to display normally
 $consoleHwnd = [IconExtractor]::GetConsoleWindow()
 if ($consoleHwnd -ne [IntPtr]::Zero) {
@@ -46,6 +182,44 @@ if (!(Test-Path $RainmeterExe)) {
     $RainmeterExe = Join-Path ${env:ProgramFiles(x86)} "Rainmeter\Rainmeter.exe"
 }
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$MonitorMetricsFile = Join-Path $Resource "MonitorMetrics.lua"
+
+function Write-MonitorMetrics {
+    try {
+        $mons = @([MonitorMetricsHelper]::GetMonitors())
+        if ($mons.Count -eq 0) { return }
+        $awareness = [MonitorMetricsHelper]::GetRainmeterDpiAwareness()
+        $primaryDpi = 96
+        foreach ($m in $mons) {
+            if ($m.IsPrimary -and $m.Dpi -gt 0) {
+                $primaryDpi = [int]$m.Dpi
+                break
+            }
+        }
+
+        $lines = New-Object System.Collections.Generic.List[string]
+        $lines.Add("-- Auto-generated by FolderManager.ps1 (Per-Monitor-V2 DPI & physical display metrics)")
+        $lines.Add("return {")
+        $lines.Add("    primaryDpi = $primaryDpi,")
+        $lines.Add("    rainmeterDpiAwareness = $awareness,")
+        $lines.Add("    monitors = {")
+        foreach ($m in $mons) {
+            $primStr = if ($m.IsPrimary) { "true" } else { "false" }
+            $lines.Add("        { isPrimary = $primStr, dpi = $($m.Dpi), sx = $($m.ScreenX), sy = $($m.ScreenY), sw = $($m.ScreenW), sh = $($m.ScreenH), wx = $($m.WorkX), wy = $($m.WorkY), ww = $($m.WorkW), wh = $($m.WorkH) },")
+        }
+        $lines.Add("    }")
+        $lines.Add("}")
+
+        $newContent = ($lines -join "`r`n") + "`r`n"
+        if (Test-Path $MonitorMetricsFile) {
+            $oldContent = [IO.File]::ReadAllText($MonitorMetricsFile, $Utf8NoBom)
+            if ($oldContent -eq $newContent) { return }
+        }
+        [IO.File]::WriteAllText($MonitorMetricsFile, $newContent, $Utf8NoBom)
+    } catch {
+        # Non-fatal: FolderPopup.lua falls back cleanly to live Rainmeter monitor variables
+    }
+}
 
 function Invoke-RainmeterBangs([string[]]$Bangs) {
     if (!(Test-Path $RainmeterExe) -or !$Bangs -or $Bangs.Count -eq 0) { return }
@@ -195,6 +369,7 @@ function Select-Item([string]$Title, [string[]]$Items) {
 }
 
 function Show-FolderManager([ref]$Data) {
+    Write-MonitorMetrics
     $form = New-Object Windows.Forms.Form
     $form.Size = New-Object Drawing.Size(940, 640)
     $form.MinimumSize = New-Object Drawing.Size(880, 560)
@@ -1249,6 +1424,7 @@ function Get-FolderDirectoryNames($Folders) {
 }
 
 function Write-Launcher($Data) {
+    Write-MonitorMetrics
     $folders = @($Data.folders)
     if (!(Test-Path $FolderTemplate)) {
         throw "Missing shared folder template: $FolderTemplate"
@@ -1592,6 +1768,7 @@ function Refresh-Skin {
 }
 
 function Sync-FolderSkins($Data = $null) {
+    Write-MonitorMetrics
     if (!(Test-Path $RainmeterExe)) { return }
     if ($null -eq $Data) { $Data = Load-Data }
 
@@ -1730,6 +1907,7 @@ switch ($Action) {
         Refresh-Skin $data -TargetFolders @($sync.Changed) -RemovedFolders @($sync.Removed)
         exit 0
     }
+    "SyncMonitors" { Write-MonitorMetrics; Refresh-Skin $data; exit 0 }
     "ResetLayout" { }
     "Initialize" {
         $shell = $null
