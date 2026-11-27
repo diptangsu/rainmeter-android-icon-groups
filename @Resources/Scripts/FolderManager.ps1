@@ -4,7 +4,7 @@ param(
     [string]$FolderId = "",
     [int]$FromIndex = -1,
     [int]$ToIndex = -1,
-    [ValidateSet("ExpandCollapse","ElasticBounce","Slide","Fade","None")]
+    [ValidateSet("ExpandCollapse","ElasticBounce","SubtlePop","Settle","VerticalBounce","Snap","Slide","Fade","None")]
     [string]$AnimStyle = "ExpandCollapse"
 )
 
@@ -246,7 +246,10 @@ function Show-FolderManager([ref]$Data) {
     $animCombo = New-Object Windows.Forms.ComboBox
     $animCombo.Location = New-Object Drawing.Point(480, 77); $animCombo.Size = New-Object Drawing.Size(125, 25)
     $animCombo.DropDownStyle = "DropDownList"
-    [void]$animCombo.Items.AddRange(@("ExpandCollapse", "ElasticBounce", "Slide", "Fade", "None"))
+    [void]$animCombo.Items.AddRange(@(
+        "ExpandCollapse", "ElasticBounce", "SubtlePop", "Settle",
+        "VerticalBounce", "Snap", "Slide", "Fade", "None"
+    ))
 
     $initFOp = if ($Data.Value.PSObject.Properties['folderOpacity'] -and $null -ne $Data.Value.folderOpacity) { [int]$Data.Value.folderOpacity } else { 100 }
     $initPopOp = if ($Data.Value.PSObject.Properties['popupOpacity'] -and $null -ne $Data.Value.popupOpacity) { [int]$Data.Value.popupOpacity } else { 100 }

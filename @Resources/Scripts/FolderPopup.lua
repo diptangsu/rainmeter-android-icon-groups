@@ -246,6 +246,36 @@ function ApplyAnimFrame(p, skipRedraw)
         local curPanelY = tonumber(SKIN:ReplaceVariables('#PanelY#')) or 104
         if (curPanelX + shiftX) < 2 then shiftX = 2 - curPanelX end
         if (curPanelY + shiftY) < 2 then shiftY = 2 - curPanelY end
+    elseif style == 'SubtlePop' then
+        scale = 0.88 + (0.12 * ease)
+        local a = p * 1.5
+        alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
+        shiftX = math.floor((1 - scale) * cachedPanelW * 0.5)
+        shiftY = math.floor((1 - scale) * cachedPanelH * 0.5)
+    elseif style == 'Settle' then
+        scale = 1.06 - (0.06 * ease)
+        shiftX = math.floor((1 - scale) * cachedPanelW * 0.5)
+        shiftY = math.floor((1 - scale) * cachedPanelH * 0.5)
+
+        local curPanelX = tonumber(SKIN:ReplaceVariables('#PanelX#')) or 18
+        local curPanelY = tonumber(SKIN:ReplaceVariables('#PanelY#')) or 104
+        if (curPanelX + shiftX) < 2 then shiftX = 2 - curPanelX end
+        if (curPanelY + shiftY) < 2 then shiftY = 2 - curPanelY end
+    elseif style == 'VerticalBounce' then
+        local pm1 = p - 1
+        local backEase = 1 + 2.7 * (pm1 * pm1 * pm1) + 1.7 * (pm1 * pm1)
+        local dist = math.floor((1 - backEase) * 42)
+        local a = p * 1.8
+        alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
+        shiftY = openUp and dist or -dist
+
+        local curPanelY = tonumber(SKIN:ReplaceVariables('#PanelY#')) or 104
+        if (curPanelY + shiftY) < 2 then shiftY = 2 - curPanelY end
+    elseif style == 'Snap' then
+        local a = p * 2.0
+        alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
+        local nudge = math.floor((1 - ease) * 10)
+        shiftY = openUp and nudge or -nudge
     elseif style == 'Slide' then
         local dist = math.floor((1 - ease) * 75)
         shiftX = openLeft and dist or -math.floor(dist * 0.35)
@@ -469,15 +499,15 @@ function OpenPanel()
         '[!SetVariable IconOffsetX ' .. iconOffsetX .. ']' ..
         '[!SetVariable IconOffsetY ' .. iconOffsetY .. ']' ..
         '[!SetVariable PanelX ' .. panelX .. ']' ..
-        '[!SetVariable PanelY ' .. panelY .. ']'
+        '[!SetVariable PanelY ' .. panelY .. ']' ..
+        '[!ShowMeterGroup PanelContent][!HideMeter SelectionHighlight]'
     }
 
+    local moveBang = ''
     if newSkinX ~= nil and newSkinY ~= nil and (newSkinX ~= skinX or newSkinY ~= skinY) then
         didMove = true
-        bangs[#bangs + 1] = '[!Move ' .. newSkinX .. ' ' .. newSkinY .. ']'
+        moveBang = '[!Move ' .. newSkinX .. ' ' .. newSkinY .. ']'
     end
-
-    bangs[#bangs + 1] = '[!ShowMeterGroup PanelContent][!HideMeter SelectionHighlight]'
 
     lastScale, lastAlpha, lastShiftX, lastShiftY = -1, -1, -9999, -9999
 
@@ -486,7 +516,7 @@ function OpenPanel()
         animProgress = 1
         SKIN:Bang(table.concat(bangs))
         ApplyAnimFrame(1, true)
-        SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]')
+        SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]' .. moveBang)
     else
         animState = "opening"
         animStartProgress = (animProgress > 0 and animProgress < 1) and animProgress or 0.12
@@ -494,7 +524,7 @@ function OpenPanel()
         animStartTime = os.clock()
         SKIN:Bang(table.concat(bangs))
         ApplyAnimFrame(animProgress, true)
-        SKIN:Bang('[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]')
+        SKIN:Bang('[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]' .. moveBang)
     end
 end
 
