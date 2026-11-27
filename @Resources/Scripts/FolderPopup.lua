@@ -10,6 +10,10 @@ local ICON_RIGHT_EDGE = 86
 local ICON_TOP_GAP_Y = 8
 local DEFAULT_PANEL_X = 18
 local DEFAULT_PANEL_Y = 104
+local GLOW_PAD_L = 12
+local GLOW_PAD_R = 15
+local GLOW_PAD_T = 12
+local GLOW_PAD_B = 16
 local MAX_MONITORS = 16
 
 local floor = math.floor
@@ -59,9 +63,9 @@ function Initialize()
     cachedPanelY = DEFAULT_PANEL_Y
 
     -- Precomputed skin-local monitor clamp bounds for the active popup animation
-    cachedMinLocalX = 2
+    cachedMinLocalX = GLOW_PAD_L
     cachedMaxLocalRight = 99999
-    cachedMinLocalY = 2
+    cachedMinLocalY = GLOW_PAD_T
     cachedMaxLocalBottom = 99999
 
     -- Cache static grid layout metrics once per skin load/refresh
@@ -705,8 +709,8 @@ local function GetSharedSeams(activeMon, monitors)
 end
 
 local function GetAnimationOverhang(style, panelW, panelH)
-    -- Base 2px for [PanelBackground] Padding=2,2,2,2
-    local overL, overR, overT, overB = 2, 2, 2, 2
+    -- Base headroom for [PanelGlow] outer drop-shadow halo + [PanelBackground] Padding=2,2,2,2
+    local overL, overR, overT, overB = GLOW_PAD_L, GLOW_PAD_R, GLOW_PAD_T, GLOW_PAD_B
     if style == 'ElasticBounce' then
         -- Peak scale ~1.057x
         local extraW = ceil(panelW * 0.058)
@@ -825,7 +829,7 @@ function OpenPanel()
         end
 
         -- Solve (newSkinX, iconOffsetX, panelX) keeping iconOffsetX >= 0 and icon pixel-locked
-        local minLocalPanelX = max(DEFAULT_PANEL_X, overL + 4)
+        local minLocalPanelX = max(DEFAULT_PANEL_X, overL + 2)
         local candSkinX = floor(desiredPopupX_s - (minLocalPanelX * effScaleX) + 0.5)
         if candSkinX < savedOrigX then
             iconOffsetX = ceil((savedOrigX - candSkinX) / effScaleX)
@@ -838,7 +842,7 @@ function OpenPanel()
         end
 
         -- Solve (newSkinY, iconOffsetY, panelY) keeping iconOffsetY >= 0 and icon pixel-locked
-        local minLocalPanelY = max(10, overT + 4)
+        local minLocalPanelY = max(GLOW_PAD_T + 2, overT + 2)
         if openUp then
             local candSkinY = floor(desiredPopupY_s - (minLocalPanelY * effScaleY) + 0.5)
             if candSkinY < savedOrigY then
@@ -856,15 +860,15 @@ function OpenPanel()
             panelY = max(DEFAULT_PANEL_Y, floor((desiredPopupY_s - newSkinY) / effScaleY + 0.5))
         end
 
-        -- Precompute skin-local monitor clamp limits for zero-overhead per-frame animation clamping
-        cachedMinLocalX = max(2, ceil((workX + marginL - newSkinX) / effScaleX))
-        cachedMaxLocalRight = floor((rightEdge - marginR - newSkinX) / effScaleX)
-        cachedMinLocalY = max(2, ceil((workY + marginT - newSkinY) / effScaleY))
-        cachedMaxLocalBottom = floor((bottomEdge - marginB - newSkinY) / effScaleY)
+        -- Precompute skin-local monitor clamp limits including [PanelGlow] outer halo headroom
+        cachedMinLocalX = max(GLOW_PAD_L, ceil((workX + marginL - newSkinX) / effScaleX + GLOW_PAD_L))
+        cachedMaxLocalRight = floor((rightEdge - marginR - newSkinX) / effScaleX - GLOW_PAD_R)
+        cachedMinLocalY = max(GLOW_PAD_T, ceil((workY + marginT - newSkinY) / effScaleY + GLOW_PAD_T))
+        cachedMaxLocalBottom = floor((bottomEdge - marginB - newSkinY) / effScaleY - GLOW_PAD_B)
     else
-        cachedMinLocalX = 2
+        cachedMinLocalX = GLOW_PAD_L
         cachedMaxLocalRight = 99999
-        cachedMinLocalY = 2
+        cachedMinLocalY = GLOW_PAD_T
         cachedMaxLocalBottom = 99999
     end
 
@@ -942,9 +946,9 @@ function FinishClose(immediate)
     lastHoverAlpha = 0
     cachedPanelX = DEFAULT_PANEL_X
     cachedPanelY = DEFAULT_PANEL_Y
-    cachedMinLocalX = 2
+    cachedMinLocalX = GLOW_PAD_L
     cachedMaxLocalRight = 99999
-    cachedMinLocalY = 2
+    cachedMinLocalY = GLOW_PAD_T
     cachedMaxLocalBottom = 99999
     lastScale, lastAlpha, lastShiftX, lastShiftY, lastMatrix = 1, 0, 0, 0, '1;0;0;1;0;0'
 

@@ -184,6 +184,107 @@ if (!(Test-Path $RainmeterExe)) {
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $MonitorMetricsFile = Join-Path $Resource "MonitorMetrics.lua"
 
+function Normalize-HexColor([string]$HexColor) {
+    if ([string]::IsNullOrWhiteSpace($HexColor)) { return "" }
+    $clean = $HexColor.Trim().TrimStart('#')
+    if ($clean -match '^[0-9A-Fa-f]{6}$') {
+        return "#" + $clean.ToUpperInvariant()
+    }
+    return ""
+}
+
+function Blend-Rgb([int[]]$ColorA, [int[]]$ColorB, [double]$Weight) {
+    $outR = [int][Math]::Round($ColorA[0] + (($ColorB[0] - $ColorA[0]) * $Weight))
+    $outG = [int][Math]::Round($ColorA[1] + (($ColorB[1] - $ColorA[1]) * $Weight))
+    $outB = [int][Math]::Round($ColorA[2] + (($ColorB[2] - $ColorA[2]) * $Weight))
+    $outR = [Math]::Max(0, [Math]::Min(255, $outR))
+    $outG = [Math]::Max(0, [Math]::Min(255, $outG))
+    $outB = [Math]::Max(0, [Math]::Min(255, $outB))
+    return "$outR,$outG,$outB"
+}
+
+function Get-FolderTintPalette([string]$AccentHex) {
+    $norm = Normalize-HexColor $AccentHex
+    if ([string]::IsNullOrEmpty($norm)) {
+        return [ordered]@{
+            FolderAccent        = ""
+            FolderFillTopRGB    = "38,43,56"
+            FolderFillRGB       = "30,34,44"
+            FolderFillBotRGB    = "23,26,35"
+            FolderBorderRGB     = "255,255,255"
+            FolderBorderAlpha   = 65
+            FolderGlowRGB       = "255,255,255"
+            FolderGlowAlpha     = 65
+            FolderOuterGlowA1   = 26
+            FolderOuterGlowA2   = 10
+            PopupFillTopRGB     = "28,32,43"
+            PopupFillRGB        = "22,25,34"
+            PopupFillBotRGB     = "17,20,28"
+            PopupBorderRGB      = "255,255,255"
+            PopupBorderAlpha    = 55
+            PopupInnerGlowRGB   = "255,255,255"
+            PopupInnerGlowAlpha = 65
+            PopupGlowRGB        = "0,0,0"
+            PopupGlowA1         = 34
+            PopupGlowA2         = 21
+            PopupGlowA3         = 11
+            PopupGlowA4         = 5
+            SelFillRGB          = "130,175,255"
+            SelBorderRGB        = "140,190,255"
+        }
+    }
+
+    $r = [Convert]::ToInt32($norm.Substring(1, 2), 16)
+    $g = [Convert]::ToInt32($norm.Substring(3, 2), 16)
+    $b = [Convert]::ToInt32($norm.Substring(5, 2), 16)
+    $raw = @($r, $g, $b)
+    $white = @(255, 255, 255)
+
+    # Luminance-aware balancing keeps bright tints deep/legible and dark tints visibly rimmed
+    $lum = ((0.299 * $r) + (0.587 * $g) + (0.114 * $b)) / 255.0
+    $fillScale = if ($lum -gt 0.75) { 0.72 } elseif ($lum -gt 0.55) { 0.88 } else { 1.0 }
+    $fillAccent = @(
+        [int][Math]::Round($r * $fillScale),
+        [int][Math]::Round($g * $fillScale),
+        [int][Math]::Round($b * $fillScale)
+    )
+
+    $rimLift = if ($lum -lt 0.25) { 0.35 } else { 0.18 }
+    $glowLift = if ($lum -lt 0.25) { 0.22 } else { 0.08 }
+    $rimAccent = @(
+        [int][Math]::Round($r + ((255 - $r) * $rimLift)),
+        [int][Math]::Round($g + ((255 - $g) * $rimLift)),
+        [int][Math]::Round($b + ((255 - $b) * $rimLift))
+    )
+
+    return [ordered]@{
+        FolderAccent        = $norm
+        FolderFillTopRGB    = (Blend-Rgb @(38, 43, 56) $fillAccent 0.34)
+        FolderFillRGB       = (Blend-Rgb @(30, 34, 44) $fillAccent 0.27)
+        FolderFillBotRGB    = (Blend-Rgb @(22, 25, 34) $fillAccent 0.20)
+        FolderBorderRGB     = (Blend-Rgb $white $rimAccent 0.72)
+        FolderBorderAlpha   = 125
+        FolderGlowRGB       = (Blend-Rgb $white $rimAccent 0.42)
+        FolderGlowAlpha     = 95
+        FolderOuterGlowA1   = 38
+        FolderOuterGlowA2   = 16
+        PopupFillTopRGB     = (Blend-Rgb @(28, 32, 43) $fillAccent 0.18)
+        PopupFillRGB        = (Blend-Rgb @(22, 25, 34) $fillAccent 0.13)
+        PopupFillBotRGB     = (Blend-Rgb @(17, 20, 28) $fillAccent 0.09)
+        PopupBorderRGB      = (Blend-Rgb $white $rimAccent 0.75)
+        PopupBorderAlpha    = 115
+        PopupInnerGlowRGB   = (Blend-Rgb $white $rimAccent 0.50)
+        PopupInnerGlowAlpha = 90
+        PopupGlowRGB        = (Blend-Rgb $raw $white $glowLift)
+        PopupGlowA1         = 46
+        PopupGlowA2         = 28
+        PopupGlowA3         = 15
+        PopupGlowA4         = 7
+        SelFillRGB          = (Blend-Rgb $white $rimAccent 0.78)
+        SelBorderRGB        = (Blend-Rgb $white $rimAccent 0.85)
+    }
+}
+
 function Write-MonitorMetrics {
     try {
         $mons = @([MonitorMetricsHelper]::GetMonitors())
@@ -437,10 +538,14 @@ function Show-FolderManager([ref]$Data) {
     $folderList.ItemHeight = [Math]::Max(24, [Windows.Forms.TextRenderer]::MeasureText("Ag", $folderList.Font).Height + 6)
 
     $script:dragHoverFolderIdx = -1
+    $script:tintBrushCache = @{}
     $folderBgNormal = New-Object Drawing.SolidBrush([Drawing.Color]::White)
     $folderBgSelected = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(83, 125, 205))
     $folderBgDragHover = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(219, 234, 254))
     $folderBorderDragHover = New-Object Drawing.Pen([Drawing.Color]::FromArgb(83, 125, 205), 1)
+    $folderDotDefault = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(185, 193, 208))
+    $folderDotBorder = New-Object Drawing.Pen([Drawing.Color]::FromArgb(110, 0, 0, 0), 1)
+    $folderDotBorderSel = New-Object Drawing.Pen([Drawing.Color]::FromArgb(210, 255, 255, 255), 1)
     $folderFgNormal = [Drawing.Color]::FromArgb(30, 35, 45)
     $folderFgSelected = [Drawing.Color]::White
     $folderFgDragHover = [Drawing.Color]::FromArgb(20, 45, 95)
@@ -465,7 +570,29 @@ function Show-FolderManager([ref]$Data) {
             $fg = $folderFgNormal
         }
 
-        $textRect = New-Object Drawing.Rectangle(($e.Bounds.X + 6), $e.Bounds.Y, [Math]::Max(0, $e.Bounds.Width - 10), $e.Bounds.Height)
+        # Draw subtle category tint dot on left of folder name
+        $dotBrush = $folderDotDefault
+        $foldersArr = @($Data.Value.folders)
+        if ($e.Index -lt $foldersArr.Count) {
+            $fItem = $foldersArr[$e.Index]
+            $hex = if ($fItem -and $fItem.PSObject.Properties['accentColor']) { Normalize-HexColor ([string]$fItem.accentColor) } else { "" }
+            if (![string]::IsNullOrEmpty($hex)) {
+                if (!$script:tintBrushCache.ContainsKey($hex)) {
+                    $col = [Drawing.ColorTranslator]::FromHtml($hex)
+                    $script:tintBrushCache[$hex] = New-Object Drawing.SolidBrush($col)
+                }
+                $dotBrush = $script:tintBrushCache[$hex]
+            }
+        }
+        $prevSmooth = $e.Graphics.SmoothingMode
+        $e.Graphics.SmoothingMode = [Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $dotY = $e.Bounds.Y + [Math]::Floor(($e.Bounds.Height - 10) / 2)
+        $e.Graphics.FillEllipse($dotBrush, ($e.Bounds.X + 7), $dotY, 10, 10)
+        $dotPen = if ($isSelected -and !$isDragTarget) { $folderDotBorderSel } else { $folderDotBorder }
+        $e.Graphics.DrawEllipse($dotPen, ($e.Bounds.X + 7), $dotY, 10, 10)
+        $e.Graphics.SmoothingMode = $prevSmooth
+
+        $textRect = New-Object Drawing.Rectangle(($e.Bounds.X + 23), $e.Bounds.Y, [Math]::Max(0, $e.Bounds.Width - 27), $e.Bounds.Height)
         [Windows.Forms.TextRenderer]::DrawText($e.Graphics, [string]$folderList.Items[$e.Index], $e.Font, $textRect, $fg, $folderTextFlags)
     })
 
@@ -480,7 +607,7 @@ function Show-FolderManager([ref]$Data) {
 
     $mainTop = New-Object Windows.Forms.Panel
     $mainTop.Dock = "Top"
-    $mainTop.Height = 220
+    $mainTop.Height = 256
 
     $breadcrumb = New-Object Windows.Forms.Label
     $breadcrumb.Location = New-Object Drawing.Point(0, 0)
@@ -600,6 +727,55 @@ function Show-FolderManager([ref]$Data) {
     $densityCombo.DropDownStyle = "DropDownList"
     [void]$densityCombo.Items.AddRange(@("Standard", "Compact"))
 
+    $tintLabel = New-Object Windows.Forms.Label
+    $tintLabel.Text = "Glass Tint:"
+    $tintLabel.Location = New-Object Drawing.Point(0, 222)
+    $tintLabel.Size = New-Object Drawing.Size(68, 22)
+
+    $tintActiveSwatch = New-Object Windows.Forms.Panel
+    $tintActiveSwatch.Location = New-Object Drawing.Point(70, 221)
+    $tintActiveSwatch.Size = New-Object Drawing.Size(22, 22)
+    $tintActiveSwatch.BorderStyle = "FixedSingle"
+    $tintActiveSwatch.BackColor = [Drawing.Color]::FromArgb(46, 52, 66)
+
+    $tintToolTip = New-Object Windows.Forms.ToolTip
+    $tintPresets = @(
+        @{ Name = "Default Neutral Glass"; Hex = "";        Rgb = @(46, 52, 66) },
+        @{ Name = "Crimson Glass";         Hex = "#E11D48"; Rgb = @(225, 29, 72) },
+        @{ Name = "Amber Glass";           Hex = "#D97706"; Rgb = @(217, 119, 6) },
+        @{ Name = "Emerald Glass";         Hex = "#10B981"; Rgb = @(16, 185, 129) },
+        @{ Name = "Cyan Glass";            Hex = "#06B6D4"; Rgb = @(6, 182, 212) },
+        @{ Name = "Sapphire Glass";        Hex = "#3B82F6"; Rgb = @(59, 130, 246) },
+        @{ Name = "Violet Glass";          Hex = "#8B5CF6"; Rgb = @(139, 92, 246) },
+        @{ Name = "Rose Glass";            Hex = "#EC4899"; Rgb = @(236, 72, 153) }
+    )
+    $tintPresetButtons = New-Object System.Collections.Generic.List[Windows.Forms.Button]
+    $swatchX = 102
+    foreach ($preset in $tintPresets) {
+        $btn = New-Object Windows.Forms.Button
+        $btn.Location = New-Object Drawing.Point($swatchX, 221)
+        $btn.Size = New-Object Drawing.Size(22, 22)
+        $btn.FlatStyle = "Flat"
+        $btn.BackColor = [Drawing.Color]::FromArgb($preset.Rgb[0], $preset.Rgb[1], $preset.Rgb[2])
+        $btn.FlatAppearance.BorderSize = 1
+        $btn.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(140, 150, 170)
+        $btn.Tag = [string]$preset.Hex
+        $btn.TabStop = $false
+        $tintToolTip.SetToolTip($btn, $preset.Name)
+        [void]$tintPresetButtons.Add($btn)
+        $swatchX += 26
+    }
+
+    $customTintBtn = New-Object Windows.Forms.Button
+    $customTintBtn.Text = "Custom Color..."
+    $customTintBtn.Location = New-Object Drawing.Point(($swatchX + 8), 218)
+    $customTintBtn.Size = New-Object Drawing.Size(106, 28)
+
+    $clearTintBtn = New-Object Windows.Forms.Button
+    $clearTintBtn.Text = "Clear Tint"
+    $clearTintBtn.Location = New-Object Drawing.Point(($swatchX + 120), 218)
+    $clearTintBtn.Size = New-Object Drawing.Size(80, 28)
+
     $mainTop.Controls.AddRange(@(
         $breadcrumb, $backButton, $addShortcutButton, $customIconButton,
         $removeButton, $deleteFolderButton, $renameLabel, $renameBox, $renameButton,
@@ -607,8 +783,10 @@ function Show-FolderManager([ref]$Data) {
         $folderOpLabel, $folderOpSlider, $popupOpLabel, $popupOpSlider,
         $prevOpLabel, $prevOpSlider, $resetOpacityBtn,
         $customFolderIconBtn, $restoreFolderIconBtn,
-        $colsLabel, $colsCombo, $densityLabel, $densityCombo
+        $colsLabel, $colsCombo, $densityLabel, $densityCombo,
+        $tintLabel, $tintActiveSwatch, $customTintBtn, $clearTintBtn
     ))
+    foreach ($tb in $tintPresetButtons) { $mainTop.Controls.Add($tb) }
 
     $statusLabel = New-Object Windows.Forms.Label
     $statusLabel.Dock = "Bottom"
@@ -675,10 +853,87 @@ function Show-FolderManager([ref]$Data) {
     }
 
     function script:Update-FolderButtons {
-        $hasTarget = ($null -ne (Get-TargetFolder))
+        $target = Get-TargetFolder
+        $hasTarget = ($null -ne $target)
         $deleteFolderButton.Enabled = $hasTarget
         $customFolderIconBtn.Enabled = $hasTarget
         $restoreFolderIconBtn.Enabled = $hasTarget
+        $customTintBtn.Enabled = $hasTarget
+
+        $activeHex = ""
+        if ($hasTarget -and $target.PSObject.Properties['accentColor']) {
+            $activeHex = Normalize-HexColor ([string]$target.accentColor)
+        }
+        $clearTintBtn.Enabled = ($hasTarget -and ![string]::IsNullOrEmpty($activeHex))
+
+        if ([string]::IsNullOrEmpty($activeHex)) {
+            $tintActiveSwatch.BackColor = [Drawing.Color]::FromArgb(46, 52, 66)
+        } else {
+            try { $tintActiveSwatch.BackColor = [Drawing.ColorTranslator]::FromHtml($activeHex) }
+            catch { $tintActiveSwatch.BackColor = [Drawing.Color]::FromArgb(46, 52, 66) }
+        }
+
+        foreach ($tb in $tintPresetButtons) {
+            $tb.Enabled = $hasTarget
+            $isMatch = ($hasTarget -and ([string]$tb.Tag -eq $activeHex))
+            $tb.FlatAppearance.BorderSize = if ($isMatch) { 2 } else { 1 }
+            $tb.FlatAppearance.BorderColor = if ($isMatch) { [Drawing.Color]::FromArgb(30, 41, 59) } else { [Drawing.Color]::FromArgb(140, 150, 170) }
+        }
+    }
+
+    function script:Apply-FolderTint([string]$AccentHex) {
+        $folder = Get-TargetFolder
+        if (!$folder) { return }
+        $norm = Normalize-HexColor $AccentHex
+
+        if ($folder.PSObject.Properties['accentColor']) { $folder.accentColor = $norm }
+        else { $folder | Add-Member -NotePropertyName "accentColor" -NotePropertyValue $norm -Force }
+
+        # Determine folder's Rainmeter config name and whether its Folder.ini already has tint variables
+        $foldersArr = @($Data.Value.folders)
+        $dirNames = @(Get-FolderDirectoryNames $foldersArr)
+        $folderDirName = ""
+        for ($i = 0; $i -lt $foldersArr.Count; $i++) {
+            if ([string]$foldersArr[$i].id -eq [string]$folder.id) {
+                $folderDirName = $dirNames[$i]
+                break
+            }
+        }
+
+        $iniPath = if ($folderDirName) { Join-Path $FolderRoot "$folderDirName\Folder.ini" } else { "" }
+        $hasLiveTintVars = $false
+        if ($iniPath -and (Test-Path $iniPath)) {
+            $existingIni = [IO.File]::ReadAllText($iniPath, $Utf8NoBom)
+            if ($existingIni -match '(?m)^FolderFillRGB=' -and $existingIni -match '(?m)^PopupGlowRGB=') {
+                $hasLiveTintVars = $true
+            }
+        }
+
+        Save-Data $Data.Value
+        $sync = Write-Launcher $Data.Value
+
+        if ($hasLiveTintVars -and $folderDirName) {
+            $skinName = Split-Path -Leaf $Root
+            $cfg = "$skinName\Folders\$folderDirName"
+            $palette = Get-FolderTintPalette $norm
+            $bangs = New-Object System.Collections.Generic.List[string]
+            foreach ($key in $palette.Keys) {
+                $val = [string]$palette[$key]
+                $bangs.Add("[!SetVariable $key `"$val`" `"$cfg`"]")
+            }
+            $bangs.Add("[!UpdateMeter * `"$cfg`"][!Redraw `"$cfg`"]")
+            Invoke-RainmeterBangs @($bangs)
+        } else {
+            Refresh-Skin $Data.Value -TargetFolders @($sync.Changed) -RemovedFolders @($sync.Removed)
+        }
+
+        $folderList.Invalidate()
+        Update-FolderButtons
+        if ([string]::IsNullOrEmpty($norm)) {
+            $statusLabel.Text = "Reset glass tint to default neutral glass for '$($folder.name)'."
+        } else {
+            $statusLabel.Text = "Applied $norm glass tint & expanded glow to '$($folder.name)'."
+        }
     }
 
     function script:Refresh-UI {
@@ -1109,6 +1364,37 @@ function Show-FolderManager([ref]$Data) {
         $statusLabel.Text = "Restored default 2x2 icon preview for '$($folder.name)'."
     })
 
+    foreach ($tb in $tintPresetButtons) {
+        $tb.Add_Click({
+            param($sender, $e)
+            Apply-FolderTint ([string]$sender.Tag)
+        })
+    }
+
+    $customTintBtn.Add_Click({
+        $folder = Get-TargetFolder
+        if (!$folder) { return }
+        $cd = New-Object Windows.Forms.ColorDialog
+        try {
+            $cd.FullOpen = $true
+            $cd.AnyColor = $true
+            $curHex = if ($folder.PSObject.Properties['accentColor']) { Normalize-HexColor ([string]$folder.accentColor) } else { "" }
+            if (![string]::IsNullOrEmpty($curHex)) {
+                try { $cd.Color = [Drawing.ColorTranslator]::FromHtml($curHex) } catch {}
+            }
+            if ($cd.ShowDialog() -eq "OK") {
+                $pickedHex = "#{0:X2}{1:X2}{2:X2}" -f $cd.Color.R, $cd.Color.G, $cd.Color.B
+                Apply-FolderTint $pickedHex
+            }
+        } finally {
+            $cd.Dispose()
+        }
+    })
+
+    $clearTintBtn.Add_Click({
+        Apply-FolderTint ""
+    })
+
     $customIconButton.Add_Click({
         if ([string]::IsNullOrEmpty($script:selectedFolderId) -or $grid.SelectedItems.Count -eq 0) { return }
         $appId = [string]$grid.SelectedItems[0].Tag
@@ -1402,6 +1688,14 @@ function Show-FolderManager([ref]$Data) {
         if ($null -ne $folderBgSelected) { $folderBgSelected.Dispose() }
         if ($null -ne $folderBgDragHover) { $folderBgDragHover.Dispose() }
         if ($null -ne $folderBorderDragHover) { $folderBorderDragHover.Dispose() }
+        if ($null -ne $folderDotDefault) { $folderDotDefault.Dispose() }
+        if ($null -ne $folderDotBorder) { $folderDotBorder.Dispose() }
+        if ($null -ne $folderDotBorderSel) { $folderDotBorderSel.Dispose() }
+        if ($null -ne $tintToolTip) { $tintToolTip.Dispose() }
+        foreach ($br in $script:tintBrushCache.Values) {
+            if ($null -ne $br) { $br.Dispose() }
+        }
+        $script:tintBrushCache.Clear()
         $form.Dispose()
     }
 }
@@ -1676,6 +1970,12 @@ function Write-Launcher($Data) {
         $folderLines.Add("FolderAlphaScale=$folderAlphaScale")
         $folderLines.Add("PopupAlphaScale=$popupAlphaScale")
         $folderLines.Add("PreviewAlpha=$previewAlpha")
+
+        $folderAccent = if ($folder.PSObject.Properties['accentColor']) { [string]$folder.accentColor } else { "" }
+        $tintPalette = Get-FolderTintPalette $folderAccent
+        foreach ($tKey in $tintPalette.Keys) {
+            $folderLines.Add("$tKey=$($tintPalette[$tKey])")
+        }
 
         $apps = @($folder.shortcuts)
         $rows = [Math]::Max(1, [Math]::Ceiling([Math]::Max(1, $apps.Count) / $appCols))
