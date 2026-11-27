@@ -95,9 +95,9 @@ function Select-Item([string]$Title, [string[]]$Items) {
 
 function Show-FolderManager([ref]$Data) {
     $form = New-Object Windows.Forms.Form
+    $form.Size = New-Object Drawing.Size(940, 640)
+    $form.MinimumSize = New-Object Drawing.Size(880, 560)
     $form.Text = "Android Launcher Settings"
-    $form.ClientSize = New-Object Drawing.Size(880, 540)
-    $form.MinimumSize = New-Object Drawing.Size(800, 480)
     $form.AutoScaleMode = "Dpi"
     $form.StartPosition = "CenterScreen"
     $form.TopMost = $false
@@ -167,9 +167,20 @@ function Show-FolderManager([ref]$Data) {
     $main.Dock = "Fill"
     $main.Padding = New-Object Windows.Forms.Padding(20, 14, 20, 14)
 
+    # Inside Show-FolderManager, enlarge Top panel for better visual padding
     $mainTop = New-Object Windows.Forms.Panel
     $mainTop.Dock = "Top"
-    $mainTop.Height = 150
+    $mainTop.Height = 190
+
+    $customFolderIconBtn = New-Object Windows.Forms.Button
+    $customFolderIconBtn.Text = "Change Folder Icon"
+    $customFolderIconBtn.Location = New-Object Drawing.Point(12, 150)
+    $customFolderIconBtn.Size = New-Object Drawing.Size(145, 28)
+
+    $restoreFolderIconBtn = New-Object Windows.Forms.Button
+    $restoreFolderIconBtn.Text = "Restore Default Icon"
+    $restoreFolderIconBtn.Location = New-Object Drawing.Point(165, 150)
+    $restoreFolderIconBtn.Size = New-Object Drawing.Size(145, 28)
 
     $breadcrumb = New-Object Windows.Forms.Label
     $breadcrumb.Location = New-Object Drawing.Point(0, 0)
@@ -243,7 +254,8 @@ function Show-FolderManager([ref]$Data) {
     $mainTop.Controls.AddRange(@(
         $breadcrumb, $backButton, $addShortcutButton, $customIconButton,
         $removeButton, $deleteFolderButton, $renameLabel, $renameBox, $renameButton,
-        $animLabel, $animCombo, $folderOpLabel, $folderOpSlider, $prevOpLabel, $prevOpSlider
+        $animLabel, $animCombo, $folderOpLabel, $folderOpSlider, $prevOpLabel, $prevOpSlider,
+        $customFolderIconBtn, $restoreFolderIconBtn
     ))
 
     $statusLabel = New-Object Windows.Forms.Label
@@ -375,6 +387,8 @@ function Show-FolderManager([ref]$Data) {
 
         if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
             $breadcrumb.Text = "All Folders"
+            $customFolderIconBtn.Enabled = $false
+            $restoreFolderIconBtn.Enabled = $false
             $backButton.Enabled = $false
             $addShortcutButton.Enabled = $false
             $customIconButton.Enabled = $false
@@ -399,6 +413,8 @@ function Show-FolderManager([ref]$Data) {
                 return
             }
             $breadcrumb.Text = "All Folders  >  " + [string]$folder.name
+            $customFolderIconBtn.Enabled = $true
+            $restoreFolderIconBtn.Enabled = $true
             $backButton.Enabled = $true
             $addShortcutButton.Enabled = $true
             $customIconButton.Enabled = $false
@@ -433,6 +449,7 @@ function Show-FolderManager([ref]$Data) {
         # Force immediate UI repaint
         $grid.Invalidate()
         $grid.Refresh()
+        Update-FolderButtons
         $script:suppressListEvent = $false
     }
 
@@ -456,24 +473,24 @@ function Show-FolderManager([ref]$Data) {
     })
 
     $grid.Add_SelectedIndexChanged({
-        if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
-            if ($grid.SelectedItems.Count -gt 0) {
-                $renameBox.Enabled = $true
-                $renameButton.Enabled = $true
-                $deleteFolderButton.Enabled = $true
-                $renameBox.Text = $grid.SelectedItems[0].Text
-            }
-            return
-        }
         $hasSel = ($grid.SelectedItems.Count -gt 0)
-        $customIconButton.Enabled = $hasSel
-        $removeButton.Enabled = $hasSel
-        if ($hasSel) {
-            $renameBox.Text = $grid.SelectedItems[0].Text
+
+        if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
+            $renameBox.Enabled = $hasSel
+            $renameButton.Enabled = $hasSel
+            $renameBox.Text = if ($hasSel) { $grid.SelectedItems[0].Text } else { "" }
         } else {
-            $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
-            if ($folder) { $renameBox.Text = [string]$folder.name }
+            $customIconButton.Enabled = $hasSel
+            $removeButton.Enabled = $hasSel
+            if ($hasSel) {
+                $renameBox.Text = $grid.SelectedItems[0].Text
+            } else {
+                $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+                if ($folder) { $renameBox.Text = [string]$folder.name }
+            }
         }
+
+        Update-FolderButtons
     })
 
     $grid.Add_DoubleClick({
@@ -624,6 +641,66 @@ function Show-FolderManager([ref]$Data) {
         }
     })
 
+    function script:Get-TargetFolder {
+        $targetId = $script:selectedFolderId
+        if ([string]::IsNullOrEmpty($targetId) -and $grid.SelectedItems.Count -gt 0) {
+            $tag = $grid.SelectedItems[0].Tag
+            if ($tag -is [string]) {
+                $targetId = $tag
+            } elseif ($null -ne $tag -and $tag.PSObject.Properties['id']) {
+                $targetId = [string]$tag.id
+            }
+        }
+        if ([string]::IsNullOrEmpty($targetId)) { return $null }
+        return @($Data.Value.folders | Where-Object { [string]$_.id -eq $targetId })[0]
+    }
+
+    function script:Update-FolderButtons {
+        $hasTarget = ($null -ne (Get-TargetFolder))
+        $deleteFolderButton.Enabled = $hasTarget
+        $customFolderIconBtn.Enabled = $hasTarget
+        $restoreFolderIconBtn.Enabled = $hasTarget
+    }
+
+    $customFolderIconBtn.Add_Click({
+        $folder = Get-TargetFolder
+        if (!$folder) { return }
+
+        $dlg = New-Object Windows.Forms.OpenFileDialog
+        $dlg.Title = "Choose Custom Folder Icon"
+        $dlg.Filter = "Images (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp"
+        if ($dlg.ShowDialog() -eq "OK") {
+            $customName = "folder_" + $folder.id + ".png"
+            $img = Load-UnlockedImage $dlg.FileName
+            $bmp = New-Object Drawing.Bitmap($img)
+            $bmp.Save((Join-Path $IconDir $customName), [Drawing.Imaging.ImageFormat]::Png)
+            $bmp.Dispose(); $img.Dispose()
+
+            if ($folder.PSObject.Properties['icon']) { $folder.icon = $customName }
+            else { $folder | Add-Member -NotePropertyName "icon" -NotePropertyValue $customName -Force }
+
+            Commit-ManagerChanges
+            Refresh-UI
+            $statusLabel.Text = "Applied custom folder icon to '$($folder.name)'."
+        }
+    })
+
+    $restoreFolderIconBtn.Add_Click({
+        $folder = Get-TargetFolder
+        if (!$folder) { return }
+
+        if ($folder.PSObject.Properties['icon']) {
+            $folder.icon = ""
+        }
+        $customName = "folder_" + $folder.id + ".png"
+        $filePath = Join-Path $IconDir $customName
+        if (Test-Path $filePath) { Remove-Item $filePath -Force }
+
+        Commit-ManagerChanges
+        Refresh-UI
+        $statusLabel.Text = "Restored default 2x2 icon preview for '$($folder.name)'."
+    })
+
     $customIconButton.Add_Click({
         if ([string]::IsNullOrEmpty($script:selectedFolderId) -or $grid.SelectedItems.Count -eq 0) { return }
         $appId = [string]$grid.SelectedItems[0].Tag
@@ -657,16 +734,25 @@ function Show-FolderManager([ref]$Data) {
     })
 
     $deleteFolderButton.Add_Click({
-        $targetId = $script:selectedFolderId
-        if ([string]::IsNullOrEmpty($targetId) -and $grid.SelectedItems.Count -gt 0) {
-            $targetId = [string]$grid.SelectedItems[0].Tag
+        $folder = Get-TargetFolder
+        if (!$folder) { return }
+
+        $confirm = [Windows.Forms.MessageBox]::Show(
+            "Delete folder '$($folder.name)'? (Your original files and shortcuts on disk will not be deleted.)",
+            "Delete Folder",
+            [Windows.Forms.MessageBoxButtons]::YesNo,
+            [Windows.Forms.MessageBoxIcon]::Warning
+        )
+        if ($confirm -ne [Windows.Forms.DialogResult]::Yes) { return }
+
+        $Data.Value.folders = @($Data.Value.folders | Where-Object { [string]$_.id -ne [string]$folder.id })
+        if ($script:selectedFolderId -eq [string]$folder.id) {
+            $script:selectedFolderId = ""
         }
-        if ([string]::IsNullOrEmpty($targetId)) { return }
-        $Data.Value.folders = @($Data.Value.folders | Where-Object { [string]$_.id -ne $targetId })
-        $script:selectedFolderId = $null
+
         Commit-ManagerChanges
         Refresh-UI
-        $statusLabel.Text = "Deleted folder."
+        $statusLabel.Text = "Deleted folder '$($folder.name)'."
     })
 
     # --- UNIFIED DRAG & DROP (REORDER SHORTCUTS + DROP FILES FROM EXPLORER) ---
@@ -1027,30 +1113,53 @@ function Write-Launcher($Data) {
         $folderLines.Add("ImageAlpha=#PreviewAlpha#")
         $folderLines.Add("")
 
-        # 2x2 Mini-Icon Folder Preview
-        $previewCount = [Math]::Min(4, $apps.Count)
-        for ($p=0; $p -lt $previewCount; $p++) {
-            $pApp = $apps[$p]
-            $pCol = $p % 2
-            $pRow = [Math]::Floor($p / 2)
-            $px = 38 + ($pCol * 20)
-            $py = 24 + ($pRow * 20)
-            $pIcon = [string]$pApp.icon
-            if (!$pIcon -or !(Test-Path (Join-Path $IconDir $pIcon))) { $pIcon = "app_default.png" }
+        # In Folder.ini, check if this folder has a custom closed overlay
+        $folderIcon = ""
+        if ($folder.PSObject.Properties['icon'] -and !([string]::IsNullOrEmpty($folder.icon))) {
+            $folderIcon = [string]$folder.icon
+        }
 
-            $folderLines.Add("[FolderPreview_${p}]")
+        # Replace existing mini-icon previews & generate conditional visual previews
+        if (![string]::IsNullOrEmpty($folderIcon) -and (Test-Path (Join-Path $IconDir $folderIcon))) {
+            $folderLines.Add("[FolderCustomIconOverlay]")
             $folderLines.Add("Meter=Image")
-            $folderLines.Add("ImageName=#ROOTCONFIGPATH#Icons\$pIcon")
-            $folderLines.Add("X=($px + #IconOffsetX#)")
-            $folderLines.Add("Y=($py + #IconOffsetY#)")
-            $folderLines.Add("W=16")
-            $folderLines.Add("H=16")
-            $folderLines.Add("ImageAlpha=235")
+            $folderLines.Add("ImageName=#ROOTCONFIGPATH#Icons\$folderIcon")
+            $folderLines.Add("X=(40 + #IconOffsetX#)")
+            $folderLines.Add("Y=(26 + #IconOffsetY#)")
+            $folderLines.Add("W=32")
+            $folderLines.Add("H=32")
+            $folderLines.Add("ImageAlpha=#PreviewAlpha#")
             $folderLines.Add("PreserveAspectRatio=1")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("MouseActionCursorName=HAND")
             $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]')
             $folderLines.Add("")
+        } else {
+            # Run the 2x2 mini icon preview generator loop:
+            $previewCount = [Math]::Min(4, $apps.Count)
+            for ($p=0; $p -lt $previewCount; $p++) {
+                $pApp = $apps[$p]
+                $pCol = $p % 2
+                $pRow = [Math]::Floor($p / 2)
+                $px = 38 + ($pCol * 20)
+                $py = 24 + ($pRow * 20)
+                $pIcon = [string]$pApp.icon
+                if (!$pIcon -or !(Test-Path (Join-Path $IconDir $pIcon))) { $pIcon = "app_default.png" }
+
+                $folderLines.Add("[FolderPreview_${p}]")
+                $folderLines.Add("Meter=Image")
+                $folderLines.Add("ImageName=#ROOTCONFIGPATH#Icons\$pIcon")
+                $folderLines.Add("X=($px + #IconOffsetX#)")
+                $folderLines.Add("Y=($py + #IconOffsetY#)")
+                $folderLines.Add("W=16")
+                $folderLines.Add("H=16")
+                $folderLines.Add("ImageAlpha=#PreviewAlpha#")
+                $folderLines.Add("PreserveAspectRatio=1")
+                $folderLines.Add("DynamicVariables=1")
+                $folderLines.Add("MouseActionCursorName=HAND")
+                $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]')
+                $folderLines.Add("")
+            }
         }
 
         if ($apps.Count -eq 0) {
