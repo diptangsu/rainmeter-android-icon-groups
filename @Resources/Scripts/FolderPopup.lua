@@ -46,20 +46,24 @@ function TogglePanel()
 end
 
 local function GetGridMetrics()
-    local panelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
-    if panelW >= 440 then
-        return panelW, 104, 98, 16, 48, 45
-    end
-    return panelW, 84, 76, 14, 48, 44
+    local cols  = tonumber(SKIN:GetVariable('GridCols')) or 4
+    local cellW = tonumber(SKIN:GetVariable('CellW')) or 104
+    local cellH = tonumber(SKIN:GetVariable('CellH')) or 98
+    local padX  = tonumber(SKIN:GetVariable('PadX')) or 16
+    local padY  = tonumber(SKIN:GetVariable('PadY')) or 48
+    local isCompact = (cellW <= 90)
+    local iconSize = isCompact and 34 or 40
+    local labelOffset = isCompact and 38 or 45
+    return cols, cellW, cellH, padX, padY, iconSize, labelOffset, isCompact
 end
 
 function RestoreIcon(idx)
     if idx == nil or idx < 0 then return end
-    local col = idx % 4
-    local row = math.floor(idx / 4)
-    local _, cellW, cellH, padX, padY, labelOffset = GetGridMetrics()
+    local cols, cellW, cellH, padX, padY, iconSize, labelOffset = GetGridMetrics()
+    local col = idx % cols
+    local row = math.floor(idx / cols)
 
-    local relIconX = padX + (col * cellW) + math.floor(cellW / 2) - 20
+    local relIconX = padX + (col * cellW) + math.floor(cellW / 2) - math.floor(iconSize / 2)
     local relIconY = padY + (row * cellH)
     local relLabelY = relIconY + labelOffset
 
@@ -70,8 +74,8 @@ function RestoreIcon(idx)
     SKIN:Bang(
         '[!SetOption ' .. iconName .. ' X "((#*PanelX*# + #*AnimShiftX*# + (' .. relIconX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!SetOption ' .. iconName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relIconY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' W "(40 * #*AnimScale*# * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' H "(40 * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' W "(' .. iconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' H "(' .. iconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
         '[!SetOption ' .. labelName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relLabelY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!SetOption ' .. labelName .. ' FontWeight "400"]' ..
         '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. ']'
@@ -94,16 +98,16 @@ function HoverApp(idx)
         return
     end
 
-    local col = idx % 4
-    local row = math.floor(idx / 4)
-    local panelW, cellW, cellH, padX, padY = GetGridMetrics()
+    local cols, cellW, cellH, padX, padY, _, _, isCompact = GetGridMetrics()
+    local col = idx % cols
+    local row = math.floor(idx / cols)
 
     local baseIconY = padY + (row * cellH)
     local hoverW = cellW - 6
-    local hoverH = (panelW >= 440) and 88 or 72
+    local hoverH = isCompact and 72 or 88
 
     local labelMeter = SKIN:GetMeter('AppLabel_' .. idx)
-    if labelMeter and panelW >= 440 then
+    if labelMeter and not isCompact then
         local textLen = #(labelMeter:GetOption('Text') or '')
         if textLen <= 13 then
             hoverH = 74
@@ -158,23 +162,24 @@ function SelectApp(idx)
     end
 
     selectedIdx = idx
-    local col = idx % 4
-    local row = math.floor(idx / 4)
-    local panelW, cellW, cellH, padX, padY = GetGridMetrics()
+    local cols, cellW, cellH, padX, padY, iconSize, labelOffset, isCompact = GetGridMetrics()
+    local col = idx % cols
+    local row = math.floor(idx / cols)
 
-    local baseIconX = padX + (col * cellW) + math.floor(cellW / 2) - 20
+    local baseIconX = padX + (col * cellW) + math.floor(cellW / 2) - math.floor(iconSize / 2)
     local baseIconY = padY + (row * cellH)
     local expIconX = baseIconX - 3
     local expIconY = baseIconY - 3
-    local expLabelY = baseIconY + 48
+    local expIconSize = iconSize + 6
+    local expLabelY = baseIconY + labelOffset + 3
 
     local iconName = 'AppIcon_' .. idx
     local labelName = 'AppLabel_' .. idx
 
     local labelMeter = SKIN:GetMeter(labelName)
     local selW = cellW - 6
-    local selH = (panelW >= 440) and 88 or 72
-    if labelMeter and panelW >= 440 then
+    local selH = isCompact and 72 or 88
+    if labelMeter and not isCompact then
         local textLen = #(labelMeter:GetOption('Text') or '')
         if textLen <= 13 then
             selH = 74
@@ -191,8 +196,8 @@ function SelectApp(idx)
     SKIN:Bang(
         '[!SetOption ' .. iconName .. ' X "((#*PanelX*# + #*AnimShiftX*# + (' .. expIconX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!SetOption ' .. iconName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. expIconY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' W "(46 * #*AnimScale*# * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' H "(46 * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' W "(' .. expIconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' H "(' .. expIconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
         '[!SetOption ' .. labelName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. expLabelY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!SetOption ' .. labelName .. ' FontWeight "600"]' ..
         '[!SetVariable SelW ' .. selW .. ']' ..
@@ -360,6 +365,27 @@ function Update()
     end
 end
 
+local function GetWorkAreaForPoint(x, y)
+    if x ~= nil and y ~= nil then
+        for i = 1, 4 do
+            local wx = tonumber(SKIN:ReplaceVariables('#WORKAREAX@' .. i .. '#'))
+            local wy = tonumber(SKIN:ReplaceVariables('#WORKAREAY@' .. i .. '#'))
+            local ww = tonumber(SKIN:ReplaceVariables('#WORKAREAWIDTH@' .. i .. '#'))
+            local wh = tonumber(SKIN:ReplaceVariables('#WORKAREAHEIGHT@' .. i .. '#'))
+            if wx and wy and ww and wh and ww > 0 and wh > 0 then
+                if x >= wx and x <= (wx + ww) and y >= wy and y <= (wy + wh) then
+                    return wx, wy, ww, wh
+                end
+            end
+        end
+    end
+    local wx = tonumber(SKIN:ReplaceVariables('#WORKAREAX#')) or 0
+    local wy = tonumber(SKIN:ReplaceVariables('#WORKAREAY#')) or 0
+    local ww = tonumber(SKIN:ReplaceVariables('#WORKAREAWIDTH#')) or 1920
+    local wh = tonumber(SKIN:ReplaceVariables('#WORKAREAHEIGHT#')) or 1080
+    return wx, wy, ww, wh
+end
+
 function OpenPanel()
     if isOpen and animState ~= "closing" then return end
     if selectedIdx >= 0 then
@@ -393,9 +419,11 @@ function OpenPanel()
         didMove = false
     end
 
+    local workX, workY, workW, workH = GetWorkAreaForPoint(savedOrigX, savedOrigY)
+    local rightEdge = workX + workW
+    local bottomEdge = workY + workH
+
     isOpen = true
-    local origX = savedOrigX
-    local savedOrigY = savedOrigY
     local newSkinX = savedOrigX
     local newSkinY = savedOrigY
     local iconOffsetX = 0
@@ -406,21 +434,31 @@ function OpenPanel()
     openLeft = false
     openUp = false
 
-    -- Only shift if live coordinates were read and the popup overflows the current work area
+    -- Shift the skin window inward if the popup (plus bounce headroom) would cross an edge,
+    -- and offset the folder icon by the exact delta so it stays locked to savedOrigX / savedOrigY.
     if savedOrigX ~= nil and savedOrigY ~= nil then
-        if savedOrigX >= workX and savedOrigX <= rightEdge and (savedOrigX + 18 + cachedPanelW) > (rightEdge - 12) then
+        local bouncePadX = math.ceil(cachedPanelW * 0.06) + 12
+        if (savedOrigX + panelX + cachedPanelW + bouncePadX) > rightEdge then
             openLeft = true
-            local shiftLeft = cachedPanelW - 76
-            newSkinX = savedOrigX - shiftLeft
-            iconOffsetX = shiftLeft
-            panelX = 18
+            local maxSkinX = rightEdge - panelX - cachedPanelW - bouncePadX
+            local desiredSkinX = math.min(savedOrigX - (cachedPanelW - 76), maxSkinX)
+            if desiredSkinX < (workX + 4) then
+                desiredSkinX = workX + 4
+            end
+            newSkinX = desiredSkinX
+            iconOffsetX = savedOrigX - newSkinX
         end
 
-        if savedOrigY >= workY and savedOrigY <= bottomEdge and (savedOrigY + 104 + cachedPanelH) > (bottomEdge - 12) then
+        local bouncePadY = math.ceil(cachedPanelH * 0.06) + 12
+        if (savedOrigY + panelY + cachedPanelH + bouncePadY) > bottomEdge then
             openUp = true
             local shiftUp = cachedPanelH + 12
-            newSkinY = savedOrigY - shiftUp
-            iconOffsetY = shiftUp
+            local desiredSkinY = savedOrigY - shiftUp
+            if desiredSkinY < (workY + 4) then
+                desiredSkinY = workY + 4
+            end
+            newSkinY = desiredSkinY
+            iconOffsetY = savedOrigY - newSkinY
             panelY = 10
         end
     end

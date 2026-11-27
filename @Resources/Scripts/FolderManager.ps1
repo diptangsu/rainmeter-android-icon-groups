@@ -97,7 +97,7 @@ function Show-FolderManager([ref]$Data) {
     $form = New-Object Windows.Forms.Form
     $form.Size = New-Object Drawing.Size(940, 640)
     $form.MinimumSize = New-Object Drawing.Size(880, 560)
-    $form.Text = "Android Launcher Settings"
+    $form.Text = "Icon Folder Settings"
     $form.AutoScaleMode = "Dpi"
     $form.StartPosition = "CenterScreen"
     $form.TopMost = $false
@@ -181,6 +181,34 @@ function Show-FolderManager([ref]$Data) {
     $restoreFolderIconBtn.Text = "Restore Default Icon"
     $restoreFolderIconBtn.Location = New-Object Drawing.Point(165, 150)
     $restoreFolderIconBtn.Size = New-Object Drawing.Size(145, 28)
+
+    $customFolderIconBtn.Location = New-Object Drawing.Point(0, 182)
+    $customFolderIconBtn.Size = New-Object Drawing.Size(140, 28)
+
+    $restoreFolderIconBtn.Location = New-Object Drawing.Point(146, 182)
+    $restoreFolderIconBtn.Size = New-Object Drawing.Size(140, 28)
+
+    $colsLabel = New-Object Windows.Forms.Label
+    $colsLabel.Text = "Columns:"
+    $colsLabel.Location = New-Object Drawing.Point(300, 186)
+    $colsLabel.Size = New-Object Drawing.Size(58, 22)
+
+    $colsCombo = New-Object Windows.Forms.ComboBox
+    $colsCombo.Location = New-Object Drawing.Point(360, 183)
+    $colsCombo.Size = New-Object Drawing.Size(48, 25)
+    $colsCombo.DropDownStyle = "DropDownList"
+    [void]$colsCombo.Items.AddRange(@("3", "4", "5"))
+
+    $densityLabel = New-Object Windows.Forms.Label
+    $densityLabel.Text = "Spacing:"
+    $densityLabel.Location = New-Object Drawing.Point(420, 186)
+    $densityLabel.Size = New-Object Drawing.Size(56, 22)
+
+    $densityCombo = New-Object Windows.Forms.ComboBox
+    $densityCombo.Location = New-Object Drawing.Point(478, 183)
+    $densityCombo.Size = New-Object Drawing.Size(100, 25)
+    $densityCombo.DropDownStyle = "DropDownList"
+    [void]$densityCombo.Items.AddRange(@("Standard", "Compact"))
 
     $breadcrumb = New-Object Windows.Forms.Label
     $breadcrumb.Location = New-Object Drawing.Point(0, 0)
@@ -281,7 +309,8 @@ function Show-FolderManager([ref]$Data) {
         $animLabel, $animCombo,
         $folderOpLabel, $folderOpSlider, $popupOpLabel, $popupOpSlider,
         $prevOpLabel, $prevOpSlider, $resetOpacityBtn,
-        $customFolderIconBtn, $restoreFolderIconBtn
+        $customFolderIconBtn, $restoreFolderIconBtn,
+        $colsLabel, $colsCombo, $densityLabel, $densityCombo
     ))
 
     $statusLabel = New-Object Windows.Forms.Label
@@ -472,6 +501,18 @@ function Show-FolderManager([ref]$Data) {
             $animCombo.SelectedIndex = $animIdx
         }
 
+        $curCols = if ($Data.Value.PSObject.Properties['gridColumns'] -and $null -ne $Data.Value.gridColumns) { [string]$Data.Value.gridColumns } else { "4" }
+        $colsIdx = $colsCombo.Items.IndexOf($curCols)
+        if ($colsIdx -ge 0 -and $colsCombo.SelectedIndex -ne $colsIdx) {
+            $colsCombo.SelectedIndex = $colsIdx
+        }
+
+        $curDensity = if ($Data.Value.PSObject.Properties['gridDensity'] -and $Data.Value.gridDensity) { [string]$Data.Value.gridDensity } else { "Standard" }
+        $densIdx = $densityCombo.Items.IndexOf($curDensity)
+        if ($densIdx -ge 0 -and $densityCombo.SelectedIndex -ne $densIdx) {
+            $densityCombo.SelectedIndex = $densIdx
+        }
+
         # Force immediate UI repaint
         $grid.Invalidate()
         $grid.Refresh()
@@ -641,6 +682,30 @@ function Show-FolderManager([ref]$Data) {
         }
 
         $statusLabel.Text = "Applied '$chosenAnim' animation to all folders."
+    })
+
+    $colsCombo.Add_SelectedIndexChanged({
+        if ($script:suppressListEvent) { return }
+        $chosenCols = [int]$colsCombo.SelectedItem
+        if ([int]$Data.Value.gridColumns -eq $chosenCols) { return }
+
+        if ($Data.Value.PSObject.Properties['gridColumns']) { $Data.Value.gridColumns = $chosenCols }
+        else { $Data.Value | Add-Member -NotePropertyName "gridColumns" -NotePropertyValue $chosenCols -Force }
+
+        Commit-ManagerChanges
+        $statusLabel.Text = "Updated popup grid to $chosenCols columns."
+    })
+
+    $densityCombo.Add_SelectedIndexChanged({
+        if ($script:suppressListEvent) { return }
+        $chosenDensity = [string]$densityCombo.SelectedItem
+        if ([string]$Data.Value.gridDensity -eq $chosenDensity) { return }
+
+        if ($Data.Value.PSObject.Properties['gridDensity']) { $Data.Value.gridDensity = $chosenDensity }
+        else { $Data.Value | Add-Member -NotePropertyName "gridDensity" -NotePropertyValue $chosenDensity -Force }
+
+        Commit-ManagerChanges
+        $statusLabel.Text = "Updated icon spacing to $chosenDensity."
     })
 
     $script:lastOpacityPush = [DateTime]::MinValue
@@ -1027,6 +1092,12 @@ function Load-Data {
     if (!$data.PSObject.Properties['previewOpacity'] -or $null -eq $data.previewOpacity) {
         $data | Add-Member -NotePropertyName "previewOpacity" -NotePropertyValue 92 -Force
     }
+    if (!$data.PSObject.Properties['gridColumns'] -or $null -eq $data.gridColumns) {
+        $data | Add-Member -NotePropertyName "gridColumns" -NotePropertyValue 4 -Force
+    }
+    if (!$data.PSObject.Properties['gridDensity'] -or [string]::IsNullOrWhiteSpace($data.gridDensity)) {
+        $data | Add-Member -NotePropertyName "gridDensity" -NotePropertyValue "Standard" -Force
+    }
     return $data
 }
 
@@ -1205,13 +1276,32 @@ function Write-Launcher($Data) {
         $folderLines.Add("PreviewAlpha=$previewAlpha")
 
         $apps = @($folder.shortcuts)
-        $appCols = 4
-        $cellW = 104; $cellH = 98; $padX = 16; $padY = 48
-        $rows = [Math]::Max(1,[Math]::Ceiling([Math]::Max(1,$apps.Count) / $appCols))
+
+        # Read configured column count (clamped to 3, 4, or 5)
+        $appCols = if ($Data.PSObject.Properties['gridColumns'] -and $null -ne $Data.gridColumns) { [int]$Data.gridColumns } else { 4 }
+        if ($appCols -notin @(3, 4, 5)) { $appCols = 4 }
+
+        # Read spacing density preset
+        $density = if ($Data.PSObject.Properties['gridDensity'] -and $Data.gridDensity) { [string]$Data.gridDensity } else { "Standard" }
+        if ($density -eq "Compact") {
+            $cellW = 84; $cellH = 82; $padX = 12; $padY = 42
+            $iconSize = 34; $labelOffset = 38; $labelH = 36; $bottomPad = 12
+        } else {
+            $cellW = 104; $cellH = 98; $padX = 16; $padY = 48
+            $iconSize = 40; $labelOffset = 45; $labelH = 44; $bottomPad = 16
+        }
+
+        $rows = [Math]::Max(1, [Math]::Ceiling([Math]::Max(1, $apps.Count) / $appCols))
         $panelW = (2 * $padX) + ($appCols * $cellW)
-        $panelH = $padY + ($rows * $cellH) + 16
+        $panelH = $padY + ($rows * $cellH) + $bottomPad
+
         $folderLines.Add("PanelWidth=$panelW")
         $folderLines.Add("PanelHeight=$panelH")
+        $folderLines.Add("GridCols=$appCols")
+        $folderLines.Add("CellW=$cellW")
+        $folderLines.Add("CellH=$cellH")
+        $folderLines.Add("PadX=$padX")
+        $folderLines.Add("PadY=$padY")
         $folderLines.Add("FolderPath=#CURRENTCONFIGDIR#")
         $folderLines.Add("")
         $folderLines.Add("@Include=#@#FolderTemplate.inc")
@@ -1290,10 +1380,10 @@ function Write-Launcher($Data) {
             $col = $j % $appCols
             $row = [Math]::Floor($j / $appCols)
 
-            $relIconX = $padX + ($col * $cellW) + [Math]::Floor($cellW / 2) - 20
+            $relIconX = $padX + ($col * $cellW) + [Math]::Floor($cellW / 2) - [Math]::Floor($iconSize / 2)
             $relCenterX = $padX + ($col * $cellW) + [Math]::Floor($cellW / 2)
             $relIconY = $padY + ($row * $cellH)
-            $relLabelY = $relIconY + 45
+            $relLabelY = $relIconY + $labelOffset
 
             $appName = Escape-Ini ([string]$app.name)
             $iconName = [string]$app.icon
@@ -1306,8 +1396,8 @@ function Write-Launcher($Data) {
             $folderLines.Add("ImageName=#ROOTCONFIGPATH#Icons\$iconName")
             $folderLines.Add("X=((#PanelX# + #AnimShiftX# + ($relIconX * #AnimScale#)) * #IsOpen#)")
             $folderLines.Add("Y=((#PanelY# + #AnimShiftY# + ($relIconY * #AnimScale#)) * #IsOpen#)")
-            $folderLines.Add("W=(40 * #AnimScale# * #IsOpen#)")
-            $folderLines.Add("H=(40 * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("W=($iconSize * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("H=($iconSize * #AnimScale# * #IsOpen#)")
             $folderLines.Add("ImageAlpha=#AnimAlpha#")
             $folderLines.Add("PreserveAspectRatio=1")
             $folderLines.Add("DynamicVariables=1")
@@ -1325,7 +1415,7 @@ function Write-Launcher($Data) {
             $folderLines.Add("X=((#PanelX# + #AnimShiftX# + ($relCenterX * #AnimScale#)) * #IsOpen#)")
             $folderLines.Add("Y=((#PanelY# + #AnimShiftY# + ($relLabelY * #AnimScale#)) * #IsOpen#)")
             $folderLines.Add("W=(($cellW - 10) * #AnimScale# * #IsOpen#)")
-            $folderLines.Add("H=(44 * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("H=($labelH * #AnimScale# * #IsOpen#)")
             $folderLines.Add("Text=$appName")
             $folderLines.Add("FontFace=Segoe UI")
             $folderLines.Add("FontSize=9")
