@@ -433,6 +433,41 @@ function Show-FolderManager([ref]$Data) {
     $folderList.BorderStyle = "FixedSingle"
     $folderList.BackColor = [Drawing.Color]::White
     $folderList.Font = New-Object Drawing.Font("Segoe UI", 10)
+    $folderList.DrawMode = [Windows.Forms.DrawMode]::OwnerDrawFixed
+    $folderList.ItemHeight = [Math]::Max(24, [Windows.Forms.TextRenderer]::MeasureText("Ag", $folderList.Font).Height + 6)
+
+    $script:dragHoverFolderIdx = -1
+    $folderBgNormal = New-Object Drawing.SolidBrush([Drawing.Color]::White)
+    $folderBgSelected = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(83, 125, 205))
+    $folderBgDragHover = New-Object Drawing.SolidBrush([Drawing.Color]::FromArgb(219, 234, 254))
+    $folderBorderDragHover = New-Object Drawing.Pen([Drawing.Color]::FromArgb(83, 125, 205), 1)
+    $folderFgNormal = [Drawing.Color]::FromArgb(30, 35, 45)
+    $folderFgSelected = [Drawing.Color]::White
+    $folderFgDragHover = [Drawing.Color]::FromArgb(20, 45, 95)
+    $folderTextFlags = [Windows.Forms.TextFormatFlags]::Left -bor [Windows.Forms.TextFormatFlags]::VerticalCenter -bor [Windows.Forms.TextFormatFlags]::EndEllipsis -bor [Windows.Forms.TextFormatFlags]::NoPrefix
+
+    $folderList.Add_DrawItem({
+        param($sender, $e)
+        if ($e.Index -lt 0 -or $e.Index -ge $folderList.Items.Count) { return }
+        $isDragTarget = ($e.Index -eq $script:dragHoverFolderIdx)
+        $isSelected = (($e.State -band [Windows.Forms.DrawItemState]::Selected) -ne 0)
+
+        if ($isDragTarget) {
+            $e.Graphics.FillRectangle($folderBgDragHover, $e.Bounds)
+            $borderRect = New-Object Drawing.Rectangle($e.Bounds.X, $e.Bounds.Y, [Math]::Max(0, $e.Bounds.Width - 1), [Math]::Max(0, $e.Bounds.Height - 1))
+            $e.Graphics.DrawRectangle($folderBorderDragHover, $borderRect)
+            $fg = $folderFgDragHover
+        } elseif ($isSelected) {
+            $e.Graphics.FillRectangle($folderBgSelected, $e.Bounds)
+            $fg = $folderFgSelected
+        } else {
+            $e.Graphics.FillRectangle($folderBgNormal, $e.Bounds)
+            $fg = $folderFgNormal
+        }
+
+        $textRect = New-Object Drawing.Rectangle(($e.Bounds.X + 6), $e.Bounds.Y, [Math]::Max(0, $e.Bounds.Width - 10), $e.Bounds.Height)
+        [Windows.Forms.TextRenderer]::DrawText($e.Graphics, [string]$folderList.Items[$e.Index], $e.Font, $textRect, $fg, $folderTextFlags)
+    })
 
     # In WinForms, Dock="Fill" is added first so it fills the remaining space below Dock="Top"
     $sidebar.Controls.Add($folderList)
@@ -1129,15 +1164,48 @@ function Show-FolderManager([ref]$Data) {
         $statusLabel.Text = "Deleted folder '$($folder.name)'."
     })
 
-    # --- UNIFIED DRAG & DROP (REORDER SHORTCUTS + DROP FILES FROM EXPLORER) ---
+    # --- UNIFIED DRAG & DROP (REORDER, MOVE BETWEEN FOLDERS, DROP FROM EXPLORER) ---
     $form.AllowDrop = $true
     $grid.AllowDrop = $true
     $folderList.AllowDrop = $true
 
+    function script:Move-ShortcutBetweenFolders($SourceFolder, $TargetFolder, [string]$AppId) {
+        if (!$SourceFolder -or !$TargetFolder -or [string]::IsNullOrEmpty($AppId)) { return $null }
+        if ([string]$SourceFolder.id -eq [string]$TargetFolder.id) { return $null }
+
+        $srcList = New-Object System.Collections.Generic.List[object]
+        $movedApp = $null
+        foreach ($s in @($SourceFolder.shortcuts)) {
+            if ($null -eq $movedApp -and [string]$s.id -eq $AppId) {
+                $movedApp = $s
+            } else {
+                [void]$srcList.Add($s)
+            }
+        }
+        if ($null -eq $movedApp) { return $null }
+
+        $dstList = New-Object System.Collections.Generic.List[object]
+        foreach ($s in @($TargetFolder.shortcuts)) {
+            [void]$dstList.Add($s)
+        }
+        [void]$dstList.Add($movedApp)
+
+        $SourceFolder.shortcuts = $srcList.ToArray()
+        $TargetFolder.shortcuts = $dstList.ToArray()
+        return $movedApp
+    }
+
     $grid.Add_ItemDrag({
         param($sender, $e)
         if (![string]::IsNullOrEmpty($script:selectedFolderId)) {
-            [void]$grid.DoDragDrop($e.Item, [Windows.Forms.DragDropEffects]::Move)
+            try {
+                [void]$grid.DoDragDrop($e.Item, [Windows.Forms.DragDropEffects]::Move)
+            } finally {
+                if ($script:dragHoverFolderIdx -ne -1) {
+                    $script:dragHoverFolderIdx = -1
+                    $folderList.Invalidate()
+                }
+            }
         }
     })
 
@@ -1160,6 +1228,57 @@ function Show-FolderManager([ref]$Data) {
             $e.Effect = [Windows.Forms.DragDropEffects]::None
         }
     }
+
+    $folderListDragOverHandler = {
+        param($sender, $e)
+        $pt = $folderList.PointToClient((New-Object Drawing.Point($e.X, $e.Y)))
+        $index = $folderList.IndexFromPoint($pt)
+        $foldersArr = @($Data.Value.folders)
+        $newHoverIdx = -1
+
+        if ($e.Data.GetDataPresent([Windows.Forms.ListViewItem])) {
+            if ($index -ge 0 -and $index -lt $foldersArr.Count -and ![string]::IsNullOrEmpty($script:selectedFolderId)) {
+                $targetFolder = $foldersArr[$index]
+                if ($targetFolder -and [string]$targetFolder.id -ne $script:selectedFolderId) {
+                    $e.Effect = [Windows.Forms.DragDropEffects]::Move
+                    $newHoverIdx = $index
+                } else {
+                    $e.Effect = [Windows.Forms.DragDropEffects]::None
+                }
+            } else {
+                $e.Effect = [Windows.Forms.DragDropEffects]::None
+            }
+        } elseif ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
+            if ($index -ge 0 -and $index -lt $foldersArr.Count) {
+                $e.Effect = [Windows.Forms.DragDropEffects]::Copy
+                $newHoverIdx = $index
+            } else {
+                $e.Effect = [Windows.Forms.DragDropEffects]::None
+            }
+        } else {
+            $e.Effect = [Windows.Forms.DragDropEffects]::None
+        }
+
+        if ($script:dragHoverFolderIdx -ne $newHoverIdx) {
+            $script:dragHoverFolderIdx = $newHoverIdx
+            $folderList.Invalidate()
+            if ($newHoverIdx -ge 0) {
+                $hoverName = [string]$foldersArr[$newHoverIdx].name
+                if ($e.Data.GetDataPresent([Windows.Forms.ListViewItem])) {
+                    $statusLabel.Text = "Drop to move shortcut to '$hoverName'."
+                } else {
+                    $statusLabel.Text = "Drop to add file(s) to '$hoverName'."
+                }
+            }
+        }
+    }
+
+    $folderList.Add_DragLeave({
+        if ($script:dragHoverFolderIdx -ne -1) {
+            $script:dragHoverFolderIdx = -1
+            $folderList.Invalidate()
+        }
+    })
 
     $gridDragDropHandler = {
         param($sender, $e)
@@ -1222,27 +1341,49 @@ function Show-FolderManager([ref]$Data) {
 
     $folderListDragDropHandler = {
         param($sender, $e)
+        if ($script:dragHoverFolderIdx -ne -1) {
+            $script:dragHoverFolderIdx = -1
+            $folderList.Invalidate()
+        }
+
+        $pt = $folderList.PointToClient((New-Object Drawing.Point($e.X, $e.Y)))
+        $index = $folderList.IndexFromPoint($pt)
+        $foldersArr = @($Data.Value.folders)
+        if ($index -lt 0 -or $index -ge $foldersArr.Count) { return }
+        $targetFolder = $foldersArr[$index]
+        if (!$targetFolder) { return }
+
+        # Case 1: Moving a shortcut dragged from the currently open folder into another folder
+        if ($e.Data.GetDataPresent([Windows.Forms.ListViewItem])) {
+            if ([string]::IsNullOrEmpty($script:selectedFolderId)) { return }
+            $sourceFolder = @($foldersArr | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
+            $draggedItem = $e.Data.GetData([Windows.Forms.ListViewItem])
+            if (!$sourceFolder -or $null -eq $draggedItem) { return }
+
+            $movedApp = script:Move-ShortcutBetweenFolders $sourceFolder $targetFolder ([string]$draggedItem.Tag)
+            if ($movedApp) {
+                script:Commit-ManagerChanges
+                script:Refresh-UI
+                $statusLabel.Text = "Moved '$($movedApp.name)' from '$($sourceFolder.name)' to '$($targetFolder.name)'."
+            }
+            return
+        }
+
+        # Case 2: Dropping external files/shortcuts from Windows Explorer onto a folder
         if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
             $paths = @($e.Data.GetData([Windows.Forms.DataFormats]::FileDrop))
-            $pt = $folderList.PointToClient((New-Object Drawing.Point($e.X, $e.Y)))
-            $index = $folderList.IndexFromPoint($pt)
-            if ($index -ge 0) {
-                $foldersArr = @($Data.Value.folders)
-                $folder = $foldersArr[$index]
-                if ($folder) {
-                    $added = Add-ShortcutsToFolder $folder $paths
-                    if ($added -gt 0) {
-                        script:Commit-ManagerChanges
-                        script:Refresh-UI
-                        $statusLabel.Text = "Added $added dropped shortcut(s) to '$($folder.name)'."
-                    }
-                }
+            $added = Add-ShortcutsToFolder $targetFolder $paths
+            if ($added -gt 0) {
+                script:Commit-ManagerChanges
+                script:Refresh-UI
+                $statusLabel.Text = "Added $added dropped shortcut(s) to '$($targetFolder.name)'."
             }
         }
     }
 
     $form.Add_DragEnter($fileDragEnterHandler)
-    $folderList.Add_DragEnter($fileDragEnterHandler)
+    $folderList.Add_DragEnter($folderListDragOverHandler)
+    $folderList.Add_DragOver($folderListDragOverHandler)
     $grid.Add_DragEnter($gridDragEnterHandler)
 
     $grid.Add_DragDrop($gridDragDropHandler)
@@ -1257,6 +1398,10 @@ function Show-FolderManager([ref]$Data) {
         [void]$form.ShowDialog()
     } finally {
         if ($null -ne $grid.LargeImageList) { $grid.LargeImageList.Dispose() }
+        if ($null -ne $folderBgNormal) { $folderBgNormal.Dispose() }
+        if ($null -ne $folderBgSelected) { $folderBgSelected.Dispose() }
+        if ($null -ne $folderBgDragHover) { $folderBgDragHover.Dispose() }
+        if ($null -ne $folderBorderDragHover) { $folderBorderDragHover.Dispose() }
         $form.Dispose()
     }
 }
