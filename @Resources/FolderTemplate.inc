@@ -25,7 +25,7 @@ HoverAlpha=0
 [MeasureToggle]
 Measure=Script
 ScriptFile=#@#Scripts\FolderPopup.lua
-UpdateDivider=60
+UpdateDivider=-1
 
 ; --- UNIFIED LIQUID GLASS FOLDER SQUIRCLE (48x48) ---
 [FolderIcon]
@@ -34,8 +34,6 @@ X=(32 + #IconOffsetX#)
 Y=(18 + #IconOffsetY#)
 Shape=Rectangle 0,0,48,48,13 | Fill Color 30,34,44,(Round(185 * #FolderAlphaScale#)) | StrokeWidth 1.2 | Stroke Color 255,255,255,(Round(65 * #FolderAlphaScale#))
 Shape2=Rectangle 1,1,46,46,12 | Fill Color 0,0,0,0 | StrokeWidth 1 | Stroke LinearGradient UnifiedInnerGlow
-UnifiedGlass=135 | 55,68,94,(Round(170 * #FolderAlphaScale#)) ; 0.0 | 34,42,60,(Round(150 * #FolderAlphaScale#)) ; 0.5 | 20,25,38,(Round(180 * #FolderAlphaScale#)) ; 1.0
-UnifiedRim=135 | 255,255,255,(Round(180 * #FolderAlphaScale#)) ; 0.0 | 255,255,255,(Round(40 * #FolderAlphaScale#)) ; 0.5 | 140,180,255,(Round(85 * #FolderAlphaScale#)) ; 1.0
 UnifiedInnerGlow=135 | 255,255,255,(Round(65 * #FolderAlphaScale#)) ; 0.0 | 255,255,255,0 ; 0.6
 DynamicVariables=1
 MouseActionCursorName=HAND
@@ -70,9 +68,7 @@ X=((#PanelX# + #AnimShiftX#) * #IsOpen#)
 Y=((#PanelY# + #AnimShiftY#) * #IsOpen#)
 Shape=Rectangle 0,0,(#PanelWidth# * #AnimScale#),(#PanelHeight# * #AnimScale#),(18 * #AnimScale#) | Fill Color 22,25,34,(Round(232 * #PopupAlphaScale# * #AnimAlpha# / 255)) | StrokeWidth 1.2 | Stroke Color 255,255,255,(Round(55 * #PopupAlphaScale# * #AnimAlpha# / 255))
 Shape2=Rectangle 1,1,(Max(0, (#PanelWidth# * #AnimScale#) - 2) * #IsOpen#),(Max(0, (#PanelHeight# * #AnimScale#) - 2) * #IsOpen#),(13 * #AnimScale#) | Fill Color 0,0,0,0 | StrokeWidth (#IsOpen#) | Stroke LinearGradient UnifiedInnerGlow
-UnifiedGlass=135 | 55,68,94,(Round(170 * #FolderAlphaScale# * #AnimAlpha# / 255)) ; 0.0 | 34,42,60,(Round(150 * #FolderAlphaScale# * #AnimAlpha# / 255)) ; 0.5 | 20,25,38,(Round(180 * #FolderAlphaScale# * #AnimAlpha# / 255)) ; 1.0
-UnifiedRim=135 | 255,255,255,(Round(180 * #FolderAlphaScale# * #AnimAlpha# / 255)) ; 0.0 | 255,255,255,(Round(40 * #FolderAlphaScale# * #AnimAlpha# / 255)) ; 0.5 | 140,180,255,(Round(85 * #FolderAlphaScale# * #AnimAlpha# / 255)) ; 1.0
-UnifiedInnerGlow=135 | 255,255,255,(Round(65 * #FolderAlphaScale# * #AnimAlpha# / 255)) ; 0.0 | 255,255,255,0 ; 0.6
+UnifiedInnerGlow=135 | 255,255,255,(Round(65 * #PopupAlphaScale# * #AnimAlpha# / 255)) ; 0.0 | 255,255,255,0 ; 0.6
 Hidden=1
 DynamicVariables=1
 LeftMouseUpAction=[!CommandMeasure MeasureToggle "ClearSelection()"]

@@ -3,6 +3,13 @@ local CLOSE_DURATION = 0.12
 local HOVER_IN_DURATION = 0.09
 local HOVER_OUT_DURATION = 0.13
 
+local floor = math.floor
+local ceil = math.ceil
+local min = math.min
+local abs = math.abs
+local clock = os.clock
+local concat = table.concat
+
 function Initialize()
     isOpen = false
     animState = "idle"
@@ -25,9 +32,21 @@ function Initialize()
     didMove = false
     pendingRestore = false
 
-    cachedStyle = "ExpandCollapse"
-    cachedPanelW = 448
-    cachedPanelH = 146
+    cachedStyle = (SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'):gsub('%s+', '')
+    cachedPanelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
+    cachedPanelH = tonumber(SKIN:GetVariable('PanelHeight')) or 146
+    cachedPanelX = 18
+    cachedPanelY = 104
+
+    -- Cache static grid layout metrics once per skin load/refresh
+    cachedCols = tonumber(SKIN:GetVariable('GridCols')) or 4
+    cachedCellW = tonumber(SKIN:GetVariable('CellW')) or 104
+    cachedCellH = tonumber(SKIN:GetVariable('CellH')) or 98
+    cachedPadX = tonumber(SKIN:GetVariable('PadX')) or 16
+    cachedPadY = tonumber(SKIN:GetVariable('PadY')) or 48
+    cachedIsCompact = (cachedCellW <= 90)
+    cachedIconSize = cachedIsCompact and 34 or 40
+    cachedLabelOffset = cachedIsCompact and 38 or 45
 
     lastScale = -1
     lastAlpha = -1
@@ -45,27 +64,39 @@ function TogglePanel()
     end
 end
 
-local function GetGridMetrics()
-    local cols  = tonumber(SKIN:GetVariable('GridCols')) or 4
-    local cellW = tonumber(SKIN:GetVariable('CellW')) or 104
-    local cellH = tonumber(SKIN:GetVariable('CellH')) or 98
-    local padX  = tonumber(SKIN:GetVariable('PadX')) or 16
-    local padY  = tonumber(SKIN:GetVariable('PadY')) or 48
-    local isCompact = (cellW <= 90)
-    local iconSize = isCompact and 34 or 40
-    local labelOffset = isCompact and 38 or 45
-    return cols, cellW, cellH, padX, padY, iconSize, labelOffset, isCompact
+local function GetTileBoxSize(idx)
+    local boxW = cachedCellW - 6
+    local hitbox = SKIN:GetMeter('AppHitbox_' .. idx)
+    if hitbox then
+        local h = hitbox:GetH()
+        if h and h > 0 then
+            return boxW, h
+        end
+    end
+
+    local boxH = cachedIsCompact and 72 or 88
+    local labelMeter = SKIN:GetMeter('AppLabel_' .. idx)
+    if labelMeter and not cachedIsCompact then
+        local textLen = #(labelMeter:GetOption('Text') or '')
+        if textLen <= 13 then
+            boxH = 74
+        elseif textLen <= 26 then
+            boxH = 88
+        else
+            boxH = 96
+        end
+    end
+    return boxW, boxH
 end
 
 function RestoreIcon(idx)
     if idx == nil or idx < 0 then return end
-    local cols, cellW, cellH, padX, padY, iconSize, labelOffset = GetGridMetrics()
-    local col = idx % cols
-    local row = math.floor(idx / cols)
+    local col = idx % cachedCols
+    local row = floor(idx / cachedCols)
 
-    local relIconX = padX + (col * cellW) + math.floor(cellW / 2) - math.floor(iconSize / 2)
-    local relIconY = padY + (row * cellH)
-    local relLabelY = relIconY + labelOffset
+    local relIconX = cachedPadX + (col * cachedCellW) + floor(cachedCellW / 2) - floor(cachedIconSize / 2)
+    local relIconY = cachedPadY + (row * cachedCellH)
+    local relLabelY = relIconY + cachedLabelOffset
 
     local iconName = 'AppIcon_' .. idx
     local labelName = 'AppLabel_' .. idx
@@ -74,8 +105,8 @@ function RestoreIcon(idx)
     SKIN:Bang(
         '[!SetOption ' .. iconName .. ' X "((#*PanelX*# + #*AnimShiftX*# + (' .. relIconX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!SetOption ' .. iconName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relIconY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' W "(' .. iconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' H "(' .. iconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' W "(' .. cachedIconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' H "(' .. cachedIconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
         '[!SetOption ' .. labelName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relLabelY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
         '[!SetOption ' .. labelName .. ' FontWeight "400"]' ..
         '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. ']'
@@ -98,27 +129,11 @@ function HoverApp(idx)
         return
     end
 
-    local cols, cellW, cellH, padX, padY, _, _, isCompact = GetGridMetrics()
-    local col = idx % cols
-    local row = math.floor(idx / cols)
-
-    local baseIconY = padY + (row * cellH)
-    local hoverW = cellW - 6
-    local hoverH = isCompact and 72 or 88
-
-    local labelMeter = SKIN:GetMeter('AppLabel_' .. idx)
-    if labelMeter and not isCompact then
-        local textLen = #(labelMeter:GetOption('Text') or '')
-        if textLen <= 13 then
-            hoverH = 74
-        elseif textLen <= 26 then
-            hoverH = 88
-        else
-            hoverH = 96
-        end
-    end
-
-    local relBoxX = padX + (col * cellW) + 3
+    local col = idx % cachedCols
+    local row = floor(idx / cachedCols)
+    local baseIconY = cachedPadY + (row * cachedCellH)
+    local hoverW, hoverH = GetTileBoxSize(idx)
+    local relBoxX = cachedPadX + (col * cachedCellW) + 3
     local relBoxY = baseIconY - 6
 
     local bangs = {}
@@ -134,9 +149,9 @@ function HoverApp(idx)
 
     hoverTarget = 1
     hoverStartAlpha = hoverAlpha
-    hoverStartTime = os.clock()
+    hoverStartTime = clock()
     bangs[#bangs + 1] = '[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]'
-    SKIN:Bang(table.concat(bangs))
+    SKIN:Bang(concat(bangs))
 end
 
 function UnhoverApp(idx)
@@ -145,7 +160,7 @@ function UnhoverApp(idx)
 
     hoverTarget = 0
     hoverStartAlpha = hoverAlpha
-    hoverStartTime = os.clock()
+    hoverStartTime = clock()
     SKIN:Bang('[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]')
 end
 
@@ -162,35 +177,20 @@ function SelectApp(idx)
     end
 
     selectedIdx = idx
-    local cols, cellW, cellH, padX, padY, iconSize, labelOffset, isCompact = GetGridMetrics()
-    local col = idx % cols
-    local row = math.floor(idx / cols)
+    local col = idx % cachedCols
+    local row = floor(idx / cachedCols)
 
-    local baseIconX = padX + (col * cellW) + math.floor(cellW / 2) - math.floor(iconSize / 2)
-    local baseIconY = padY + (row * cellH)
+    local baseIconX = cachedPadX + (col * cachedCellW) + floor(cachedCellW / 2) - floor(cachedIconSize / 2)
+    local baseIconY = cachedPadY + (row * cachedCellH)
     local expIconX = baseIconX - 3
     local expIconY = baseIconY - 3
-    local expIconSize = iconSize + 6
-    local expLabelY = baseIconY + labelOffset + 3
+    local expIconSize = cachedIconSize + 6
+    local expLabelY = baseIconY + cachedLabelOffset + 3
 
     local iconName = 'AppIcon_' .. idx
     local labelName = 'AppLabel_' .. idx
-
-    local labelMeter = SKIN:GetMeter(labelName)
-    local selW = cellW - 6
-    local selH = isCompact and 72 or 88
-    if labelMeter and not isCompact then
-        local textLen = #(labelMeter:GetOption('Text') or '')
-        if textLen <= 13 then
-            selH = 74
-        elseif textLen <= 26 then
-            selH = 88
-        else
-            selH = 96
-        end
-    end
-
-    local relBoxX = padX + (col * cellW) + 3
+    local selW, selH = GetTileBoxSize(idx)
+    local relBoxX = cachedPadX + (col * cachedCellW) + 3
     local relBoxY = baseIconY - 6
 
     SKIN:Bang(
@@ -220,75 +220,69 @@ end
 function ApplyAnimFrame(p, skipRedraw)
     local style = cachedStyle
     local inv = 1 - p
-    local ease = 1 - (inv * inv * inv) -- Faster than math.pow(1 - p, 3)
+    local ease = 1 - (inv * inv * inv)
 
     local scale = 1
-    local alpha = math.floor(255 * ease + 0.5)
+    local alpha = floor(255 * ease + 0.5)
     local shiftX = 0
     local shiftY = 0
 
     if style == 'ExpandCollapse' then
         scale = 0.20 + (0.80 * ease)
-        shiftX = openLeft and math.floor((1 - scale) * (cachedPanelW - 38)) or math.floor((1 - scale) * 20)
-        shiftY = openUp and math.floor((1 - scale) * cachedPanelH) or math.floor(-(1 - scale) * 28)
+        shiftX = openLeft and floor((1 - scale) * (cachedPanelW - 38)) or floor((1 - scale) * 20)
+        shiftY = openUp and floor((1 - scale) * cachedPanelH) or floor(-(1 - scale) * 28)
     elseif style == 'ElasticBounce' then
         local pm1 = p - 1
         local backEase = 1 + 2.4 * (pm1 * pm1 * pm1) + 1.4 * (pm1 * pm1)
         scale = 0.20 + (0.80 * backEase)
         if scale < 0.15 then scale = 0.15 end
         local a = p * 1.8
-        alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
-        shiftX = openLeft and math.floor((1 - scale) * (cachedPanelW - 38)) or math.floor((1 - scale) * 20)
-        shiftY = openUp and math.floor((1 - scale) * cachedPanelH) or math.floor(-(1 - scale) * 28)
+        alpha = (a >= 1) and 255 or floor(255 * a + 0.5)
+        shiftX = openLeft and floor((1 - scale) * (cachedPanelW - 38)) or floor((1 - scale) * 20)
+        shiftY = openUp and floor((1 - scale) * cachedPanelH) or floor(-(1 - scale) * 28)
 
-        -- Prevent negative local coordinates from clipping the left/top border at peak bounce
-        local curPanelX = tonumber(SKIN:ReplaceVariables('#PanelX#')) or 18
-        local curPanelY = tonumber(SKIN:ReplaceVariables('#PanelY#')) or 104
-        if (curPanelX + shiftX) < 2 then shiftX = 2 - curPanelX end
-        if (curPanelY + shiftY) < 2 then shiftY = 2 - curPanelY end
+        if (cachedPanelX + shiftX) < 2 then shiftX = 2 - cachedPanelX end
+        if (cachedPanelY + shiftY) < 2 then shiftY = 2 - cachedPanelY end
     elseif style == 'SubtlePop' then
         scale = 0.88 + (0.12 * ease)
         local a = p * 1.5
-        alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
-        shiftX = math.floor((1 - scale) * cachedPanelW * 0.5)
-        shiftY = math.floor((1 - scale) * cachedPanelH * 0.5)
+        alpha = (a >= 1) and 255 or floor(255 * a + 0.5)
+        shiftX = floor((1 - scale) * cachedPanelW * 0.5)
+        shiftY = floor((1 - scale) * cachedPanelH * 0.5)
     elseif style == 'Settle' then
         scale = 1.06 - (0.06 * ease)
-        shiftX = math.floor((1 - scale) * cachedPanelW * 0.5)
-        shiftY = math.floor((1 - scale) * cachedPanelH * 0.5)
+        shiftX = floor((1 - scale) * cachedPanelW * 0.5)
+        shiftY = floor((1 - scale) * cachedPanelH * 0.5)
 
-        local curPanelX = tonumber(SKIN:ReplaceVariables('#PanelX#')) or 18
-        local curPanelY = tonumber(SKIN:ReplaceVariables('#PanelY#')) or 104
-        if (curPanelX + shiftX) < 2 then shiftX = 2 - curPanelX end
-        if (curPanelY + shiftY) < 2 then shiftY = 2 - curPanelY end
+        if (cachedPanelX + shiftX) < 2 then shiftX = 2 - cachedPanelX end
+        if (cachedPanelY + shiftY) < 2 then shiftY = 2 - cachedPanelY end
     elseif style == 'VerticalBounce' then
         local pm1 = p - 1
         local backEase = 1 + 2.7 * (pm1 * pm1 * pm1) + 1.7 * (pm1 * pm1)
-        local dist = math.floor((1 - backEase) * 42)
+        local dist = floor((1 - backEase) * 42)
         local a = p * 1.8
-        alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
+        alpha = (a >= 1) and 255 or floor(255 * a + 0.5)
         shiftY = openUp and dist or -dist
 
-        local curPanelY = tonumber(SKIN:ReplaceVariables('#PanelY#')) or 104
-        if (curPanelY + shiftY) < 2 then shiftY = 2 - curPanelY end
+        if (cachedPanelY + shiftY) < 2 then shiftY = 2 - cachedPanelY end
     elseif style == 'Snap' then
         local a = p * 2.0
-        alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
-        local nudge = math.floor((1 - ease) * 10)
+        alpha = (a >= 1) and 255 or floor(255 * a + 0.5)
+        local nudge = floor((1 - ease) * 10)
         shiftY = openUp and nudge or -nudge
     elseif style == 'Slide' then
-        local dist = math.floor((1 - ease) * 75)
-        shiftX = openLeft and dist or -math.floor(dist * 0.35)
+        local dist = floor((1 - ease) * 75)
+        shiftX = openLeft and dist or -floor(dist * 0.35)
         shiftY = openUp and dist or -dist
     elseif style == 'Fade' then
-        alpha = math.floor(255 * p + 0.5)
+        alpha = floor(255 * p + 0.5)
     else -- 'None'
         alpha = (p >= 0.5) and 255 or 0
     end
 
     -- Clamp alpha and round scale to 3 decimals to avoid micro-updates
     if alpha < 0 then alpha = 0 elseif alpha > 255 then alpha = 255 end
-    scale = math.floor(scale * 1000 + 0.5) / 1000
+    scale = floor(scale * 1000 + 0.5) / 1000
 
     local bangs = {}
     if scale ~= lastScale then
@@ -312,7 +306,7 @@ function ApplyAnimFrame(p, skipRedraw)
         if not skipRedraw then
             bangs[#bangs + 1] = '[!UpdateMeterGroup PanelContent][!Redraw]'
         end
-        SKIN:Bang(table.concat(bangs))
+        SKIN:Bang(concat(bangs))
     end
 end
 
@@ -329,7 +323,7 @@ function Update()
     end
 
     if animState ~= "idle" then
-        local elapsed = os.clock() - animStartTime
+        local elapsed = clock() - animStartTime
         if animState == "opening" then
             local p = animStartProgress + (elapsed / OPEN_DURATION)
             if p >= 1 then
@@ -357,38 +351,45 @@ function Update()
 
     -- Smooth Windows Start-style hover fade when panel is idle
     if hoverAlpha ~= hoverTarget then
-        local elapsed = os.clock() - hoverStartTime
+        local elapsed = clock() - hoverStartTime
         local nextAlpha = hoverTarget
         if hoverTarget > hoverStartAlpha then
-            local t = math.min(1, elapsed / HOVER_IN_DURATION)
+            local t = min(1, elapsed / HOVER_IN_DURATION)
             local inv = 1 - t
             nextAlpha = hoverStartAlpha + (1 - hoverStartAlpha) * (1 - inv * inv)
         else
-            local t = math.min(1, elapsed / HOVER_OUT_DURATION)
+            local t = min(1, elapsed / HOVER_OUT_DURATION)
             nextAlpha = hoverStartAlpha * (1 - t)
         end
 
-        hoverAlpha = math.floor(nextAlpha * 1000 + 0.5) / 1000
-        if math.abs(hoverAlpha - hoverTarget) < 0.01 then
+        hoverAlpha = floor(nextAlpha * 1000 + 0.5) / 1000
+        if abs(hoverAlpha - hoverTarget) < 0.01 then
             hoverAlpha = hoverTarget
         end
 
         local bangs = {}
+        local needHoverRedraw = false
         if hoverAlpha ~= lastHoverAlpha then
             lastHoverAlpha = hoverAlpha
-            bangs[#bangs + 1] = '[!SetVariable HoverAlpha ' .. hoverAlpha .. '][!UpdateMeter HoverHighlight][!Redraw]'
+            bangs[#bangs + 1] = '[!SetVariable HoverAlpha ' .. hoverAlpha .. ']'
+            needHoverRedraw = true
         end
 
         if hoverAlpha == hoverTarget then
             if hoverTarget == 0 then
                 hoveredIdx = -1
-                bangs[#bangs + 1] = '[!HideMeter HoverHighlight][!UpdateMeter HoverHighlight][!Redraw]'
+                bangs[#bangs + 1] = '[!HideMeter HoverHighlight]'
+                needHoverRedraw = true
             end
             bangs[#bangs + 1] = '[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]'
         end
 
+        if needHoverRedraw then
+            bangs[#bangs + 1] = '[!UpdateMeter HoverHighlight][!Redraw]'
+        end
+
         if #bangs > 0 then
-            SKIN:Bang(table.concat(bangs))
+            SKIN:Bang(concat(bangs))
         end
     else
         SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]')
@@ -424,18 +425,9 @@ function OpenPanel()
     end
 
     cachedStyle = (SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'):gsub('%s+', '')
-    cachedPanelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
-    cachedPanelH = tonumber(SKIN:GetVariable('PanelHeight')) or 146
 
     local skinX = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGX#'))
     local skinY = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGY#'))
-    local workX = tonumber(SKIN:ReplaceVariables('#WORKAREAX#')) or 0
-    local workY = tonumber(SKIN:ReplaceVariables('#WORKAREAY#')) or 0
-    local workW = tonumber(SKIN:ReplaceVariables('#WORKAREAWIDTH#')) or 1920
-    local workH = tonumber(SKIN:ReplaceVariables('#WORKAREAHEIGHT#')) or 1080
-
-    local rightEdge = workX + workW
-    local bottomEdge = workY + workH
 
     if pendingRestore then
         pendingRestore = false
@@ -467,11 +459,11 @@ function OpenPanel()
     -- Shift the skin window inward if the popup (plus bounce headroom) would cross an edge,
     -- and offset the folder icon by the exact delta so it stays locked to savedOrigX / savedOrigY.
     if savedOrigX ~= nil and savedOrigY ~= nil then
-        local bouncePadX = math.ceil(cachedPanelW * 0.06) + 12
+        local bouncePadX = ceil(cachedPanelW * 0.06) + 12
         if (savedOrigX + panelX + cachedPanelW + bouncePadX) > rightEdge then
             openLeft = true
             local maxSkinX = rightEdge - panelX - cachedPanelW - bouncePadX
-            local desiredSkinX = math.min(savedOrigX - (cachedPanelW - 76), maxSkinX)
+            local desiredSkinX = min(savedOrigX - (cachedPanelW - 76), maxSkinX)
             if desiredSkinX < (workX + 4) then
                 desiredSkinX = workX + 4
             end
@@ -479,7 +471,7 @@ function OpenPanel()
             iconOffsetX = savedOrigX - newSkinX
         end
 
-        local bouncePadY = math.ceil(cachedPanelH * 0.06) + 12
+        local bouncePadY = ceil(cachedPanelH * 0.06) + 12
         if (savedOrigY + panelY + cachedPanelH + bouncePadY) > bottomEdge then
             openUp = true
             local shiftUp = cachedPanelH + 12
@@ -493,7 +485,10 @@ function OpenPanel()
         end
     end
 
-    local bangs = {
+    cachedPanelX = panelX
+    cachedPanelY = panelY
+
+    local setupBang =
         '[!SetVariable IsOpen 1]' ..
         '[!KeepOnScreen 0][!Draggable 0]' ..
         '[!SetVariable IconOffsetX ' .. iconOffsetX .. ']' ..
@@ -501,7 +496,6 @@ function OpenPanel()
         '[!SetVariable PanelX ' .. panelX .. ']' ..
         '[!SetVariable PanelY ' .. panelY .. ']' ..
         '[!ShowMeterGroup PanelContent][!HideMeter SelectionHighlight]'
-    }
 
     local moveBang = ''
     if newSkinX ~= nil and newSkinY ~= nil and (newSkinX ~= skinX or newSkinY ~= skinY) then
@@ -514,15 +508,15 @@ function OpenPanel()
     if cachedStyle == 'None' then
         animState = "idle"
         animProgress = 1
-        SKIN:Bang(table.concat(bangs))
+        SKIN:Bang(setupBang)
         ApplyAnimFrame(1, true)
         SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]' .. moveBang)
     else
         animState = "opening"
         animStartProgress = (animProgress > 0 and animProgress < 1) and animProgress or 0.12
         animProgress = animStartProgress
-        animStartTime = os.clock()
-        SKIN:Bang(table.concat(bangs))
+        animStartTime = clock()
+        SKIN:Bang(setupBang)
         ApplyAnimFrame(animProgress, true)
         SKIN:Bang('[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]' .. moveBang)
     end
@@ -536,15 +530,13 @@ function ClosePanel()
     end
 
     cachedStyle = (SKIN:GetVariable('AnimStyle') or 'ExpandCollapse'):gsub('%s+', '')
-    cachedPanelW = tonumber(SKIN:GetVariable('PanelWidth')) or 448
-    cachedPanelH = tonumber(SKIN:GetVariable('PanelHeight')) or 146
 
     if cachedStyle == 'None' then
         FinishClose()
     else
         animState = "closing"
         animStartProgress = (animProgress > 0) and animProgress or 1
-        animStartTime = os.clock()
+        animStartTime = clock()
         SKIN:Bang('[!HideMeter SelectionHighlight][!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]')
     end
 end
@@ -553,37 +545,34 @@ function FinishClose(immediate)
     isOpen = false
     animState = "idle"
     animProgress = 0
+    hoveredIdx = -1
+    hoverAlpha = 0
+    hoverTarget = 0
+    lastHoverAlpha = 0
+    cachedPanelX = 18
+    cachedPanelY = 104
     lastScale, lastAlpha, lastShiftX, lastShiftY = 1, 0, 0, 0
 
     local curX = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGX#'))
     local curY = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGY#'))
     local needsMove = (savedOrigX ~= nil and savedOrigY ~= nil) and (didMove or curX ~= savedOrigX or curY ~= savedOrigY)
 
+    local resetBang =
+        '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]' ..
+        '[!SetVariable IsOpen 0][!SetVariable HoverAlpha 0]' ..
+        '[!SetVariable AnimScale 1][!SetVariable AnimAlpha 0]' ..
+        '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
+        '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
+        '[!SetVariable PanelX 18][!SetVariable PanelY 104]' ..
+        '[!KeepOnScreen 0][!UpdateMeter *][!Redraw]'
+
     if needsMove and not immediate then
         pendingRestore = true
-        SKIN:Bang(
-            '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]' ..
-            '[!SetVariable IsOpen 0]' ..
-            '[!SetVariable AnimScale 1][!SetVariable AnimAlpha 0]' ..
-            '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
-            '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
-            '[!SetVariable PanelX 18][!SetVariable PanelY 104]' ..
-            '[!KeepOnScreen 0][!UpdateMeter *][!Redraw]' ..
-            '[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]'
-        )
+        SKIN:Bang(resetBang .. '[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]')
     else
         pendingRestore = false
         didMove = false
-        SKIN:Bang(
-            '[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]' ..
-            '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]' ..
-            '[!SetVariable IsOpen 0]' ..
-            '[!SetVariable AnimScale 1][!SetVariable AnimAlpha 0]' ..
-            '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
-            '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
-            '[!SetVariable PanelX 18][!SetVariable PanelY 104]' ..
-            '[!KeepOnScreen 0][!UpdateMeter *][!Redraw]'
-        )
+        SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]' .. resetBang)
         if needsMove then
             SKIN:Bang('[!KeepOnScreen 0][!Move ' .. savedOrigX .. ' ' .. savedOrigY .. '][!Redraw]')
         end
@@ -601,6 +590,10 @@ function ClosePanelInstant()
     else
         pendingRestore = false
         didMove = false
+        hoveredIdx = -1
+        hoverAlpha = 0
+        hoverTarget = 0
+        lastHoverAlpha = 0
         SKIN:Bang('[!Draggable 1][!KeepOnScreen 0]')
     end
 end

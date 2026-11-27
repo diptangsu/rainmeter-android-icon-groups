@@ -45,6 +45,107 @@ $RainmeterExe = Join-Path $env:ProgramFiles "Rainmeter\Rainmeter.exe"
 if (!(Test-Path $RainmeterExe)) {
     $RainmeterExe = Join-Path ${env:ProgramFiles(x86)} "Rainmeter\Rainmeter.exe"
 }
+$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+function Invoke-RainmeterBangs([string[]]$Bangs) {
+    if (!(Test-Path $RainmeterExe) -or !$Bangs -or $Bangs.Count -eq 0) { return }
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($bang in $Bangs) {
+        if ([string]::IsNullOrEmpty($bang)) { continue }
+        if ($sb.Length -gt 0 -and ($sb.Length + $bang.Length) -gt 6000) {
+            Start-Process -FilePath $RainmeterExe -ArgumentList $sb.ToString() -WindowStyle Hidden
+            [void]$sb.Clear()
+        }
+        [void]$sb.Append($bang)
+    }
+    if ($sb.Length -gt 0) {
+        Start-Process -FilePath $RainmeterExe -ArgumentList $sb.ToString() -WindowStyle Hidden
+    }
+}
+
+function Load-UnlockedImage([string]$Path) {
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $ms = New-Object IO.MemoryStream(,$bytes)
+    try {
+        $tmp = [Drawing.Image]::FromStream($ms)
+        try {
+            return New-Object Drawing.Bitmap($tmp)
+        } finally {
+            $tmp.Dispose()
+        }
+    } finally {
+        $ms.Dispose()
+    }
+}
+
+function Save-IconAsPng([string]$SourcePath, [string]$DestinationPath) {
+    $bmp = Load-UnlockedImage $SourcePath
+    try {
+        $bmp.Save($DestinationPath, [Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $bmp.Dispose()
+    }
+}
+
+function Add-ShortcutsToFolder($Folder, [string[]]$Paths) {
+    if (!$Folder -or !$Paths -or $Paths.Count -eq 0) { return 0 }
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($existing in @($Folder.shortcuts)) { [void]$list.Add($existing) }
+
+    $shell = $null
+    $added = 0
+    try {
+        foreach ($path in $Paths) {
+            if ([string]::IsNullOrWhiteSpace($path) -or !(Test-Path -LiteralPath $path)) { continue }
+            if ($null -eq $shell -and [IO.Path]::GetExtension($path).Equals(".lnk", [StringComparison]::OrdinalIgnoreCase)) {
+                $shell = New-Object -ComObject WScript.Shell
+            }
+            $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
+            $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
+            Extract-Icon $path (Join-Path $IconDir $iconFile) $shell
+            $newApp = [pscustomobject]@{
+                id   = [Guid]::NewGuid().ToString("N")
+                name = $defaultName
+                path = $path
+                icon = $iconFile
+            }
+            [void]$list.Add($newApp)
+            $added++
+        }
+    } finally {
+        if ($null -ne $shell) {
+            [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+        }
+    }
+
+    if ($added -gt 0) {
+        $Folder.shortcuts = @($list)
+    }
+    return $added
+}
+
+function Remove-OrphanedIcons($Data, [string[]]$ExistingIconPaths = $null) {
+    if (!(Test-Path $IconDir)) { return }
+    $referenced = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($f in @($Data.folders)) {
+        if ($f.PSObject.Properties['icon'] -and ![string]::IsNullOrWhiteSpace([string]$f.icon)) {
+            [void]$referenced.Add([string]$f.icon)
+        }
+        foreach ($s in @($f.shortcuts)) {
+            if ($s.PSObject.Properties['icon'] -and ![string]::IsNullOrWhiteSpace([string]$s.icon)) {
+                [void]$referenced.Add([string]$s.icon)
+            }
+        }
+    }
+
+    $files = if ($null -ne $ExistingIconPaths) { $ExistingIconPaths } else { [IO.Directory]::GetFiles($IconDir) }
+    foreach ($filePath in $files) {
+        $fileName = [IO.Path]::GetFileName($filePath)
+        if ($fileName -match '^(app|custom|folder)_.+\.png$' -and !$referenced.Contains($fileName)) {
+            Remove-Item -LiteralPath $filePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
 
 function Show-TextPrompt([string]$Title, [string]$Prompt, [string]$Default = "") {
     $form = New-Object Windows.Forms.Form
@@ -167,48 +268,9 @@ function Show-FolderManager([ref]$Data) {
     $main.Dock = "Fill"
     $main.Padding = New-Object Windows.Forms.Padding(20, 14, 20, 14)
 
-    # Inside Show-FolderManager, enlarge Top panel for better visual padding
     $mainTop = New-Object Windows.Forms.Panel
     $mainTop.Dock = "Top"
     $mainTop.Height = 220
-
-    $customFolderIconBtn = New-Object Windows.Forms.Button
-    $customFolderIconBtn.Text = "Change Folder Icon"
-    $customFolderIconBtn.Location = New-Object Drawing.Point(12, 150)
-    $customFolderIconBtn.Size = New-Object Drawing.Size(145, 28)
-
-    $restoreFolderIconBtn = New-Object Windows.Forms.Button
-    $restoreFolderIconBtn.Text = "Restore Default Icon"
-    $restoreFolderIconBtn.Location = New-Object Drawing.Point(165, 150)
-    $restoreFolderIconBtn.Size = New-Object Drawing.Size(145, 28)
-
-    $customFolderIconBtn.Location = New-Object Drawing.Point(0, 182)
-    $customFolderIconBtn.Size = New-Object Drawing.Size(140, 28)
-
-    $restoreFolderIconBtn.Location = New-Object Drawing.Point(146, 182)
-    $restoreFolderIconBtn.Size = New-Object Drawing.Size(140, 28)
-
-    $colsLabel = New-Object Windows.Forms.Label
-    $colsLabel.Text = "Columns:"
-    $colsLabel.Location = New-Object Drawing.Point(300, 186)
-    $colsLabel.Size = New-Object Drawing.Size(58, 22)
-
-    $colsCombo = New-Object Windows.Forms.ComboBox
-    $colsCombo.Location = New-Object Drawing.Point(360, 183)
-    $colsCombo.Size = New-Object Drawing.Size(48, 25)
-    $colsCombo.DropDownStyle = "DropDownList"
-    [void]$colsCombo.Items.AddRange(@("3", "4", "5"))
-
-    $densityLabel = New-Object Windows.Forms.Label
-    $densityLabel.Text = "Spacing:"
-    $densityLabel.Location = New-Object Drawing.Point(420, 186)
-    $densityLabel.Size = New-Object Drawing.Size(56, 22)
-
-    $densityCombo = New-Object Windows.Forms.ComboBox
-    $densityCombo.Location = New-Object Drawing.Point(478, 183)
-    $densityCombo.Size = New-Object Drawing.Size(100, 25)
-    $densityCombo.DropDownStyle = "DropDownList"
-    [void]$densityCombo.Items.AddRange(@("Standard", "Compact"))
 
     $breadcrumb = New-Object Windows.Forms.Label
     $breadcrumb.Location = New-Object Drawing.Point(0, 0)
@@ -229,7 +291,7 @@ function Show-FolderManager([ref]$Data) {
     $removeButton.Text = "Remove Shortcut"; $removeButton.Location = New-Object Drawing.Point(326, 36); $removeButton.Size = New-Object Drawing.Size(126, 32)
 
     $deleteFolderButton = New-Object Windows.Forms.Button
-    $deleteFolderButton.Text = "Delete Folder"; $deleteFolderButton.Location = New-Object Drawing.Point(460, 36); $deleteFolderButton.Size = New-Object Drawing.Point(110, 32)
+    $deleteFolderButton.Text = "Delete Folder"; $deleteFolderButton.Location = New-Object Drawing.Point(460, 36); $deleteFolderButton.Size = New-Object Drawing.Size(110, 32)
 
     $renameLabel = New-Object Windows.Forms.Label
     $renameLabel.Text = "Name:"; $renameLabel.Location = New-Object Drawing.Point(0, 81); $renameLabel.Size = New-Object Drawing.Size(48, 22)
@@ -299,12 +361,34 @@ function Show-FolderManager([ref]$Data) {
     $customFolderIconBtn = New-Object Windows.Forms.Button
     $customFolderIconBtn.Text = "Change Folder Icon"
     $customFolderIconBtn.Location = New-Object Drawing.Point(0, 182)
-    $customFolderIconBtn.Size = New-Object Drawing.Size(145, 28)
+    $customFolderIconBtn.Size = New-Object Drawing.Size(140, 28)
 
     $restoreFolderIconBtn = New-Object Windows.Forms.Button
     $restoreFolderIconBtn.Text = "Restore Default Icon"
-    $restoreFolderIconBtn.Location = New-Object Drawing.Point(153, 182)
-    $restoreFolderIconBtn.Size = New-Object Drawing.Size(145, 28)
+    $restoreFolderIconBtn.Location = New-Object Drawing.Point(146, 182)
+    $restoreFolderIconBtn.Size = New-Object Drawing.Size(140, 28)
+
+    $colsLabel = New-Object Windows.Forms.Label
+    $colsLabel.Text = "Columns:"
+    $colsLabel.Location = New-Object Drawing.Point(300, 186)
+    $colsLabel.Size = New-Object Drawing.Size(58, 22)
+
+    $colsCombo = New-Object Windows.Forms.ComboBox
+    $colsCombo.Location = New-Object Drawing.Point(360, 183)
+    $colsCombo.Size = New-Object Drawing.Size(48, 25)
+    $colsCombo.DropDownStyle = "DropDownList"
+    [void]$colsCombo.Items.AddRange(@("3", "4", "5"))
+
+    $densityLabel = New-Object Windows.Forms.Label
+    $densityLabel.Text = "Spacing:"
+    $densityLabel.Location = New-Object Drawing.Point(420, 186)
+    $densityLabel.Size = New-Object Drawing.Size(56, 22)
+
+    $densityCombo = New-Object Windows.Forms.ComboBox
+    $densityCombo.Location = New-Object Drawing.Point(478, 183)
+    $densityCombo.Size = New-Object Drawing.Size(100, 25)
+    $densityCombo.DropDownStyle = "DropDownList"
+    [void]$densityCombo.Items.AddRange(@("Standard", "Compact"))
 
     $mainTop.Controls.AddRange(@(
         $breadcrumb, $backButton, $addShortcutButton, $customIconButton,
@@ -329,73 +413,11 @@ function Show-FolderManager([ref]$Data) {
     $grid.LargeImageList = New-Object Windows.Forms.ImageList
     $grid.LargeImageList.ImageSize = New-Object Drawing.Size(48, 48)
     $grid.LargeImageList.ColorDepth = "Depth32Bit"
+    # Materialize native HIMAGELIST handle before Refresh-UI adds & disposes Bitmaps
+    [void]$grid.LargeImageList.Handle
     $grid.BorderStyle = "FixedSingle"
-    $grid.BackColor = $bgPanel
-    $grid.ForeColor = $fgWhite
     $grid.MultiSelect = $false
     $grid.AllowDrop = $true
-
-    # --- DRAG & DROP REORDERING INSIDE SETTINGS GRID ---
-    $grid.Add_ItemDrag({
-        param($sender, $e)
-        if (![string]::IsNullOrEmpty($script:selectedFolderId)) {
-            $grid.DoDragDrop($e.Item, [Windows.Forms.DragDropEffects]::Move)
-        }
-    })
-
-    $grid.Add_DragEnter({
-        param($sender, $e)
-        if ($e.Data.GetDataPresent([Windows.Forms.ListViewItem])) {
-            $e.Effect = [Windows.Forms.DragDropEffects]::Move
-        } else {
-            $e.Effect = [Windows.Forms.DragDropEffects]::None
-        }
-    })
-
-    $grid.Add_DragDrop({
-        param($sender, $e)
-        if ([string]::IsNullOrEmpty($script:selectedFolderId)) { return }
-        $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
-        if (!$folder) { return }
-
-        $pt = $grid.PointToClient((New-Object Drawing.Point($e.X, $e.Y)))
-        $targetItem = $grid.GetItemAt($pt.X, $pt.Y)
-
-        $draggedItem = $e.Data.GetData([Windows.Forms.ListViewItem])
-        if ($null -eq $draggedItem) { return }
-
-        $fromId = [string]$draggedItem.Tag
-        $shortcutsArr = @($folder.shortcuts)
-
-        $fromIdx = -1
-        for ($i = 0; $i -lt $shortcutsArr.Count; $i++) {
-            if ([string]$shortcutsArr[$i].id -eq $fromId) { $fromIdx = $i; break }
-        }
-        if ($fromIdx -lt 0) { return }
-
-        $toIdx = $shortcutsArr.Count - 1
-        if ($null -ne $targetItem) {
-            $toId = [string]$targetItem.Tag
-            for ($i = 0; $i -lt $shortcutsArr.Count; $i++) {
-                if ([string]$shortcutsArr[$i].id -eq $toId) { $toIdx = $i; break }
-            }
-        }
-
-        if ($fromIdx -ne $toIdx -and $fromIdx -ge 0 -and $toIdx -ge 0) {
-            $list = New-Object System.Collections.ArrayList
-            foreach ($s in $shortcutsArr) { [void]$list.Add($s) }
-            $item = $list[$fromIdx]
-            $list.RemoveAt($fromIdx)
-            $list.Insert($toIdx, $item)
-            $folder.shortcuts = @($list)
-
-            script:Commit-ManagerChanges
-            script:Refresh-UI
-            $grid.Invalidate()
-            $grid.Refresh()
-            $statusLabel.Text = "Rearranged shortcuts successfully."
-        }
-    })
 
     # Add Dock="Fill" first, then Bottom and Top so WinForms docks them in the exact inner rectangle
     $main.Controls.Add($grid)
@@ -408,16 +430,45 @@ function Show-FolderManager([ref]$Data) {
     $script:selectedFolderId = $null
     $script:suppressListEvent = $false
 
-    function script:Load-UnlockedImage([string]$Path) {
-        $bytes = [IO.File]::ReadAllBytes($Path)
-        $ms = New-Object IO.MemoryStream(,$bytes)
-        return [Drawing.Image]::FromStream($ms)
+    function script:Commit-ManagerChanges([string]$ForceFolderId = "") {
+        Save-Data $Data.Value
+        $sync = Write-Launcher $Data.Value
+        $targets = New-Object System.Collections.Generic.List[string]
+        foreach ($name in @($sync.Changed)) {
+            if (!$targets.Contains($name)) { [void]$targets.Add($name) }
+        }
+        if (![string]::IsNullOrEmpty($ForceFolderId)) {
+            $foldersArr = @($Data.Value.folders)
+            $dirNames = @(Get-FolderDirectoryNames $foldersArr)
+            for ($i = 0; $i -lt $foldersArr.Count; $i++) {
+                if ([string]$foldersArr[$i].id -eq $ForceFolderId) {
+                    if (!$targets.Contains($dirNames[$i])) { [void]$targets.Add($dirNames[$i]) }
+                    break
+                }
+            }
+        }
+        Refresh-Skin $Data.Value -TargetFolders @($targets) -RemovedFolders @($sync.Removed)
     }
 
-    function script:Commit-ManagerChanges {
-        Save-Data $Data.Value
-        Write-Launcher $Data.Value
-        Refresh-Skin
+    function script:Get-TargetFolder {
+        $targetId = $script:selectedFolderId
+        if ([string]::IsNullOrEmpty($targetId) -and $grid.SelectedItems.Count -gt 0) {
+            $tag = $grid.SelectedItems[0].Tag
+            if ($tag -is [string]) {
+                $targetId = $tag
+            } elseif ($null -ne $tag -and $tag.PSObject.Properties['id']) {
+                $targetId = [string]$tag.id
+            }
+        }
+        if ([string]::IsNullOrEmpty($targetId)) { return $null }
+        return @($Data.Value.folders | Where-Object { [string]$_.id -eq $targetId })[0]
+    }
+
+    function script:Update-FolderButtons {
+        $hasTarget = ($null -ne (Get-TargetFolder))
+        $deleteFolderButton.Enabled = $hasTarget
+        $customFolderIconBtn.Enabled = $hasTarget
+        $restoreFolderIconBtn.Enabled = $hasTarget
     }
 
     function script:Refresh-UI {
@@ -436,22 +487,27 @@ function Show-FolderManager([ref]$Data) {
         $grid.BeginUpdate()
         $grid.Items.Clear()
         $grid.LargeImageList.Images.Clear()
+        if (!$grid.LargeImageList.HandleCreated) {
+            [void]$grid.LargeImageList.Handle
+        }
 
         $folderIconPath = Join-Path $IconDir "folder.png"
         if (!(Test-Path $folderIconPath)) { $folderIconPath = Join-Path $IconDir "app_default.png" }
         if (Test-Path $folderIconPath) {
-            $grid.LargeImageList.Images.Add("folder", (Load-UnlockedImage $folderIconPath))
+            $fImg = Load-UnlockedImage $folderIconPath
+            try {
+                $grid.LargeImageList.Images.Add("folder", $fImg)
+            } finally {
+                $fImg.Dispose()
+            }
         }
 
         if ([string]::IsNullOrEmpty($script:selectedFolderId)) {
             $breadcrumb.Text = "All Folders"
-            $customFolderIconBtn.Enabled = $false
-            $restoreFolderIconBtn.Enabled = $false
             $backButton.Enabled = $false
             $addShortcutButton.Enabled = $false
             $customIconButton.Enabled = $false
             $removeButton.Enabled = $false
-            $deleteFolderButton.Enabled = $false
             $renameBox.Text = ""
             $renameBox.Enabled = $false
             $renameButton.Enabled = $false
@@ -471,13 +527,10 @@ function Show-FolderManager([ref]$Data) {
                 return
             }
             $breadcrumb.Text = "All Folders  >  " + [string]$folder.name
-            $customFolderIconBtn.Enabled = $true
-            $restoreFolderIconBtn.Enabled = $true
             $backButton.Enabled = $true
             $addShortcutButton.Enabled = $true
             $customIconButton.Enabled = $false
             $removeButton.Enabled = $false
-            $deleteFolderButton.Enabled = $true
             $renameBox.Enabled = $true
             $renameButton.Enabled = $true
             $renameBox.Text = [string]$folder.name
@@ -488,7 +541,14 @@ function Show-FolderManager([ref]$Data) {
                 if (!$iconName -or !(Test-Path $iconPath)) { $iconPath = Join-Path $IconDir "app_default.png" }
                 $imgKey = "app_" + [string]$s.id
                 if ((Test-Path $iconPath) -and !$grid.LargeImageList.Images.ContainsKey($imgKey)) {
-                    try { $grid.LargeImageList.Images.Add($imgKey, (Load-UnlockedImage $iconPath)) } catch {}
+                    try {
+                        $sImg = Load-UnlockedImage $iconPath
+                        try {
+                            $grid.LargeImageList.Images.Add($imgKey, $sImg)
+                        } finally {
+                            $sImg.Dispose()
+                        }
+                    } catch {}
                 }
                 $item = New-Object Windows.Forms.ListViewItem([string]$s.name)
                 $item.Tag = [string]$s.id
@@ -516,7 +576,6 @@ function Show-FolderManager([ref]$Data) {
             $densityCombo.SelectedIndex = $densIdx
         }
 
-        # Force immediate UI repaint
         $grid.Invalidate()
         $grid.Refresh()
         Update-FolderButtons
@@ -603,21 +662,21 @@ function Show-FolderManager([ref]$Data) {
         $folder = @($Data.Value.folders | Where-Object { [string]$_.id -eq $script:selectedFolderId })[0]
         if (!$folder) { return }
         $dialog = New-Object Windows.Forms.OpenFileDialog
-        $dialog.Title = "Select Application(s), Shortcut(s), or File(s)"
-        $dialog.Filter = "All files (*.*)|*.*"
-        $dialog.DereferenceLinks = $false
-        $dialog.Multiselect = $true
-        if ($dialog.ShowDialog() -ne "OK") { return }
-        foreach ($path in @($dialog.FileNames)) {
-            $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
-            $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
-            Extract-Icon $path (Join-Path $IconDir $iconFile)
-            $newApp = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $defaultName; path = $path; icon = $iconFile }
-            $folder.shortcuts = @($folder.shortcuts) + @($newApp)
+        try {
+            $dialog.Title = "Select Application(s), Shortcut(s), or File(s)"
+            $dialog.Filter = "All files (*.*)|*.*"
+            $dialog.DereferenceLinks = $false
+            $dialog.Multiselect = $true
+            if ($dialog.ShowDialog() -ne "OK") { return }
+            $added = Add-ShortcutsToFolder $folder @($dialog.FileNames)
+            if ($added -gt 0) {
+                Commit-ManagerChanges
+                Refresh-UI
+                $statusLabel.Text = "Added $added shortcut(s) to '$($folder.name)'."
+            }
+        } finally {
+            $dialog.Dispose()
         }
-        Commit-ManagerChanges
-        Refresh-UI
-        $statusLabel.Text = "Added shortcut(s) to '$($folder.name)'."
     })
 
     $renameButton.Add_Click({
@@ -646,7 +705,7 @@ function Show-FolderManager([ref]$Data) {
     })
 
     $animCombo.Add_SelectedIndexChanged({
-        if ($script:suppressListEvent -or $script:suppressAnimEvent) { return }
+        if ($script:suppressListEvent) { return }
         $chosenAnim = [string]$animCombo.SelectedItem
         if (!$chosenAnim) { return }
 
@@ -662,7 +721,6 @@ function Show-FolderManager([ref]$Data) {
         Save-Data $Data.Value
 
         # Fast in-place update of AnimStyle= in each Folder.ini (avoids full Write-Launcher rebuild)
-        $utf8 = New-Object System.Text.UTF8Encoding($false)
         $skinName = Split-Path -Leaf $Root
         $folderNames = @(Get-FolderDirectoryNames $Data.Value.folders)
         $bangList = New-Object System.Collections.Generic.List[string]
@@ -670,20 +728,16 @@ function Show-FolderManager([ref]$Data) {
         foreach ($folderName in $folderNames) {
             $iniPath = Join-Path $FolderRoot "$folderName\Folder.ini"
             if (Test-Path $iniPath) {
-                $raw = [IO.File]::ReadAllText($iniPath, $utf8)
+                $raw = [IO.File]::ReadAllText($iniPath, $Utf8NoBom)
                 $updated = [Regex]::Replace($raw, '(?m)^AnimStyle=.*$', "AnimStyle=$chosenAnim")
                 if ($updated -ne $raw) {
-                    [IO.File]::WriteAllText($iniPath, $updated, $utf8)
+                    [IO.File]::WriteAllText($iniPath, $updated, $Utf8NoBom)
                 }
             }
             $bangList.Add("[!SetVariable AnimStyle `"$chosenAnim`" `"$skinName\Folders\$folderName`"]")
         }
 
-        # Single non-blocking Rainmeter.exe call for all folders at once
-        if ((Test-Path $RainmeterExe) -and $bangList.Count -gt 0) {
-            Start-Process -FilePath $RainmeterExe -ArgumentList ($bangList -join "") -WindowStyle Hidden
-        }
-
+        Invoke-RainmeterBangs @($bangList)
         $statusLabel.Text = "Applied '$chosenAnim' animation to all folders."
     })
 
@@ -738,11 +792,10 @@ function Show-FolderManager([ref]$Data) {
             $Data.Value.previewOpacity = $pOp
             Save-Data $Data.Value
 
-            $utf8 = New-Object System.Text.UTF8Encoding($false)
             foreach ($folderName in $folderNames) {
                 $iniPath = Join-Path $FolderRoot "$folderName\Folder.ini"
                 if (Test-Path $iniPath) {
-                    $raw = [IO.File]::ReadAllText($iniPath, $utf8)
+                    $raw = [IO.File]::ReadAllText($iniPath, $Utf8NoBom)
                     $updated = [Regex]::Replace($raw, '(?m)^FolderAlphaScale=.*$', "FolderAlphaScale=$folderScale")
                     if ($updated -match '(?m)^PopupAlphaScale=') {
                         $updated = [Regex]::Replace($updated, '(?m)^PopupAlphaScale=.*$', "PopupAlphaScale=$popupScale")
@@ -751,7 +804,7 @@ function Show-FolderManager([ref]$Data) {
                     }
                     $updated = [Regex]::Replace($updated, '(?m)^PreviewAlpha=.*$', "PreviewAlpha=$prevAlpha")
                     if ($updated -ne $raw) {
-                        [IO.File]::WriteAllText($iniPath, $updated, $utf8)
+                        [IO.File]::WriteAllText($iniPath, $updated, $Utf8NoBom)
                     }
                 }
             }
@@ -765,9 +818,7 @@ function Show-FolderManager([ref]$Data) {
             $bangList.Add("[!UpdateMeter * `"$cfg`"][!Redraw `"$cfg`"]")
         }
 
-        if ((Test-Path $RainmeterExe) -and $bangList.Count -gt 0) {
-            Start-Process -FilePath $RainmeterExe -ArgumentList ($bangList -join "") -WindowStyle Hidden
-        }
+        Invoke-RainmeterBangs @($bangList)
     }
 
     $folderOpSlider.Add_Scroll({
@@ -808,47 +859,27 @@ function Show-FolderManager([ref]$Data) {
         $statusLabel.Text = "Reset opacity to defaults (Folder 100%, Popup 100%, Preview 92%)."
     })
 
-    function script:Get-TargetFolder {
-        $targetId = $script:selectedFolderId
-        if ([string]::IsNullOrEmpty($targetId) -and $grid.SelectedItems.Count -gt 0) {
-            $tag = $grid.SelectedItems[0].Tag
-            if ($tag -is [string]) {
-                $targetId = $tag
-            } elseif ($null -ne $tag -and $tag.PSObject.Properties['id']) {
-                $targetId = [string]$tag.id
-            }
-        }
-        if ([string]::IsNullOrEmpty($targetId)) { return $null }
-        return @($Data.Value.folders | Where-Object { [string]$_.id -eq $targetId })[0]
-    }
-
-    function script:Update-FolderButtons {
-        $hasTarget = ($null -ne (Get-TargetFolder))
-        $deleteFolderButton.Enabled = $hasTarget
-        $customFolderIconBtn.Enabled = $hasTarget
-        $restoreFolderIconBtn.Enabled = $hasTarget
-    }
-
     $customFolderIconBtn.Add_Click({
         $folder = Get-TargetFolder
         if (!$folder) { return }
 
         $dlg = New-Object Windows.Forms.OpenFileDialog
-        $dlg.Title = "Choose Custom Folder Icon"
-        $dlg.Filter = "Images (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp"
-        if ($dlg.ShowDialog() -eq "OK") {
-            $customName = "folder_" + $folder.id + ".png"
-            $img = Load-UnlockedImage $dlg.FileName
-            $bmp = New-Object Drawing.Bitmap($img)
-            $bmp.Save((Join-Path $IconDir $customName), [Drawing.Imaging.ImageFormat]::Png)
-            $bmp.Dispose(); $img.Dispose()
+        try {
+            $dlg.Title = "Choose Custom Folder Icon"
+            $dlg.Filter = "Images (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp"
+            if ($dlg.ShowDialog() -eq "OK") {
+                $customName = "folder_" + $folder.id + ".png"
+                Save-IconAsPng $dlg.FileName (Join-Path $IconDir $customName)
 
-            if ($folder.PSObject.Properties['icon']) { $folder.icon = $customName }
-            else { $folder | Add-Member -NotePropertyName "icon" -NotePropertyValue $customName -Force }
+                if ($folder.PSObject.Properties['icon']) { $folder.icon = $customName }
+                else { $folder | Add-Member -NotePropertyName "icon" -NotePropertyValue $customName -Force }
 
-            Commit-ManagerChanges
-            Refresh-UI
-            $statusLabel.Text = "Applied custom folder icon to '$($folder.name)'."
+                Commit-ManagerChanges -ForceFolderId ([string]$folder.id)
+                Refresh-UI
+                $statusLabel.Text = "Applied custom folder icon to '$($folder.name)'."
+            }
+        } finally {
+            $dlg.Dispose()
         }
     })
 
@@ -861,7 +892,7 @@ function Show-FolderManager([ref]$Data) {
         }
         $customName = "folder_" + $folder.id + ".png"
         $filePath = Join-Path $IconDir $customName
-        if (Test-Path $filePath) { Remove-Item $filePath -Force }
+        if (Test-Path $filePath) { Remove-Item $filePath -Force -ErrorAction SilentlyContinue }
 
         Commit-ManagerChanges
         Refresh-UI
@@ -875,18 +906,19 @@ function Show-FolderManager([ref]$Data) {
         $app = @($folder.shortcuts | Where-Object { [string]$_.id -eq $appId })[0]
         if (!$app) { return }
         $dlg = New-Object Windows.Forms.OpenFileDialog
-        $dlg.Title = "Choose Custom Icon"
-        $dlg.Filter = "Images (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp"
-        if ($dlg.ShowDialog() -eq "OK") {
-            $customName = "custom_" + [Guid]::NewGuid().ToString("N") + ".png"
-            $img = Load-UnlockedImage $dlg.FileName
-            $bmp = New-Object Drawing.Bitmap($img)
-            $bmp.Save((Join-Path $IconDir $customName), [Drawing.Imaging.ImageFormat]::Png)
-            $bmp.Dispose(); $img.Dispose()
-            $app.icon = $customName
-            Commit-ManagerChanges
-            Refresh-UI
-            $statusLabel.Text = "Updated icon for '$($app.name)'."
+        try {
+            $dlg.Title = "Choose Custom Icon"
+            $dlg.Filter = "Images (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp"
+            if ($dlg.ShowDialog() -eq "OK") {
+                $customName = "custom_" + [Guid]::NewGuid().ToString("N") + ".png"
+                Save-IconAsPng $dlg.FileName (Join-Path $IconDir $customName)
+                $app.icon = $customName
+                Commit-ManagerChanges
+                Refresh-UI
+                $statusLabel.Text = "Updated icon for '$($app.name)'."
+            }
+        } finally {
+            $dlg.Dispose()
         }
     })
 
@@ -987,7 +1019,7 @@ function Show-FolderManager([ref]$Data) {
             }
 
             if ($fromIdx -ne $toIdx -and $fromIdx -ge 0 -and $toIdx -ge 0) {
-                $list = New-Object System.Collections.ArrayList
+                $list = New-Object System.Collections.Generic.List[object]
                 foreach ($s in $shortcutsArr) { [void]$list.Add($s) }
                 $item = $list[$fromIdx]
                 $list.RemoveAt($fromIdx)
@@ -1003,44 +1035,32 @@ function Show-FolderManager([ref]$Data) {
 
         # Case 2: Dropping external files/shortcuts from Windows Explorer
         if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
-            $paths = $e.Data.GetData([Windows.Forms.DataFormats]::FileDrop)
-            foreach ($path in $paths) {
-                if (Test-Path $path) {
-                    $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
-                    $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
-                    Extract-Icon $path (Join-Path $IconDir $iconFile)
-                    $newApp = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $defaultName; path = $path; icon = $iconFile }
-                    $folder.shortcuts = @($folder.shortcuts) + @($newApp)
-                }
+            $paths = @($e.Data.GetData([Windows.Forms.DataFormats]::FileDrop))
+            $added = Add-ShortcutsToFolder $folder $paths
+            if ($added -gt 0) {
+                script:Commit-ManagerChanges
+                script:Refresh-UI
+                $statusLabel.Text = "Added $added dropped shortcut(s) to '$($folder.name)'."
             }
-            script:Commit-ManagerChanges
-            script:Refresh-UI
-            $statusLabel.Text = "Added dropped shortcut(s) to '$($folder.name)'."
         }
     }
 
     $folderListDragDropHandler = {
         param($sender, $e)
         if ($e.Data.GetDataPresent([Windows.Forms.DataFormats]::FileDrop)) {
-            $paths = $e.Data.GetData([Windows.Forms.DataFormats]::FileDrop)
+            $paths = @($e.Data.GetData([Windows.Forms.DataFormats]::FileDrop))
             $pt = $folderList.PointToClient((New-Object Drawing.Point($e.X, $e.Y)))
             $index = $folderList.IndexFromPoint($pt)
             if ($index -ge 0) {
                 $foldersArr = @($Data.Value.folders)
                 $folder = $foldersArr[$index]
                 if ($folder) {
-                    foreach ($path in $paths) {
-                        if (Test-Path $path) {
-                            $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
-                            $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
-                            Extract-Icon $path (Join-Path $IconDir $iconFile)
-                            $newApp = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $defaultName; path = $path; icon = $iconFile }
-                            $folder.shortcuts = @($folder.shortcuts) + @($newApp)
-                        }
+                    $added = Add-ShortcutsToFolder $folder $paths
+                    if ($added -gt 0) {
+                        script:Commit-ManagerChanges
+                        script:Refresh-UI
+                        $statusLabel.Text = "Added $added dropped shortcut(s) to '$($folder.name)'."
                     }
-                    script:Commit-ManagerChanges
-                    script:Refresh-UI
-                    $statusLabel.Text = "Added dropped shortcut(s) to '$($folder.name)'."
                 }
             }
         }
@@ -1058,8 +1078,12 @@ function Show-FolderManager([ref]$Data) {
         $form.Activate()
         $form.BringToFront()
     })
-    [void]$form.ShowDialog()
-    $form.Dispose()
+    try {
+        [void]$form.ShowDialog()
+    } finally {
+        if ($null -ne $grid.LargeImageList) { $grid.LargeImageList.Dispose() }
+        $form.Dispose()
+    }
 }
 
 function Load-Data {
@@ -1106,18 +1130,23 @@ function Load-Data {
 
 function Save-Data($Data) {
     $json = $Data | ConvertTo-Json -Depth 20
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
-    [IO.File]::WriteAllText($DataFile, $json, $utf8)
+    [IO.File]::WriteAllText($DataFile, $json, $Utf8NoBom)
 }
 
-function Extract-Icon([string]$Path, [string]$Destination) {
+function Extract-Icon([string]$Path, [string]$Destination, $ShellCom = $null) {
     $candidate = $Path
     $iconIndex = 0
+    $ownShell = $null
+    $shortcut = $null
     try {
         $ext = [IO.Path]::GetExtension($Path).ToLowerInvariant()
         if ($ext -eq ".lnk") {
-            $shell = New-Object -ComObject WScript.Shell
-            $shortcut = $shell.CreateShortcut($Path)
+            $shellToUse = $ShellCom
+            if ($null -eq $shellToUse) {
+                $ownShell = New-Object -ComObject WScript.Shell
+                $shellToUse = $ownShell
+            }
+            $shortcut = $shellToUse.CreateShortcut($Path)
             if ($shortcut.IconLocation) {
                 $parts = $shortcut.IconLocation -split ','
                 $iconPath = $parts[0].Trim('"').Trim()
@@ -1140,28 +1169,53 @@ function Extract-Icon([string]$Path, [string]$Destination) {
 
         $large = New-Object IntPtr[] 1
         $small = New-Object IntPtr[] 1
-        $extracted = [IconExtractor]::ExtractIconEx($candidate, $iconIndex, $large, $small, 1)
-        if ($extracted -gt 0 -and $large[0] -ne [IntPtr]::Zero) {
-            $ico = [Drawing.Icon]::FromHandle($large[0])
-            $bmp = $ico.ToBitmap()
-            $bmp.Save($Destination, [Drawing.Imaging.ImageFormat]::Png)
-            $bmp.Dispose()
-            [void][IconExtractor]::DestroyIcon($large[0])
+        try {
+            $extracted = [IconExtractor]::ExtractIconEx($candidate, $iconIndex, $large, $small, 1)
+            if ($extracted -gt 0 -and $large[0] -ne [IntPtr]::Zero) {
+                $ico = [Drawing.Icon]::FromHandle($large[0])
+                try {
+                    $bmp = $ico.ToBitmap()
+                    try {
+                        $bmp.Save($Destination, [Drawing.Imaging.ImageFormat]::Png)
+                    } finally {
+                        $bmp.Dispose()
+                    }
+                } finally {
+                    $ico.Dispose()
+                }
+                return
+            }
+        } finally {
+            if ($large[0] -ne [IntPtr]::Zero) { [void][IconExtractor]::DestroyIcon($large[0]) }
             if ($small[0] -ne [IntPtr]::Zero) { [void][IconExtractor]::DestroyIcon($small[0]) }
-            return
         }
 
         $ico = [Drawing.Icon]::ExtractAssociatedIcon($candidate)
-        if (!$ico) { $ico = [Drawing.SystemIcons]::Application }
-        $bmp = $ico.ToBitmap()
-        $bmp.Save($Destination, [Drawing.Imaging.ImageFormat]::Png)
-        $bmp.Dispose()
-        if ($ico -ne [Drawing.SystemIcons]::Application) { $ico.Dispose() }
+        $isSystemFallback = $false
+        if (!$ico) {
+            $ico = [Drawing.SystemIcons]::Application
+            $isSystemFallback = $true
+        }
+        try {
+            $bmp = $ico.ToBitmap()
+            try {
+                $bmp.Save($Destination, [Drawing.Imaging.ImageFormat]::Png)
+            } finally {
+                $bmp.Dispose()
+            }
+        } finally {
+            if (!$isSystemFallback) { $ico.Dispose() }
+        }
     } catch {
-        $fallback = [Drawing.SystemIcons]::Application
-        $bmp = $fallback.ToBitmap()
-        $bmp.Save($Destination, [Drawing.Imaging.ImageFormat]::Png)
-        $bmp.Dispose()
+        $bmp = [Drawing.SystemIcons]::Application.ToBitmap()
+        try {
+            $bmp.Save($Destination, [Drawing.Imaging.ImageFormat]::Png)
+        } finally {
+            $bmp.Dispose()
+        }
+    } finally {
+        if ($null -ne $shortcut) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shortcut) }
+        if ($null -ne $ownShell) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($ownShell) }
     }
 }
 
@@ -1196,7 +1250,6 @@ function Get-FolderDirectoryNames($Folders) {
 
 function Write-Launcher($Data) {
     $folders = @($Data.folders)
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
     if (!(Test-Path $FolderTemplate)) {
         throw "Missing shared folder template: $FolderTemplate"
     }
@@ -1204,17 +1257,25 @@ function Write-Launcher($Data) {
         New-Item -ItemType Directory -Path $FolderRoot -Force | Out-Null
     }
 
+    # Cache existing icon filenames once for O(1) lookups during generation
+    $existingIconPaths = [IO.Directory]::GetFiles($IconDir)
+    $iconSet = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($p in $existingIconPaths) {
+        [void]$iconSet.Add([IO.Path]::GetFileName($p))
+    }
+
     # Read existing WindowX / WindowY positions without deleting active directories
     $existingPos = @{}
-    Get-ChildItem -LiteralPath $FolderRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        $iniFile = Join-Path $_.FullName "Folder.ini"
+    $existingDirs = @(Get-ChildItem -LiteralPath $FolderRoot -Directory -ErrorAction SilentlyContinue)
+    foreach ($dir in $existingDirs) {
+        $iniFile = Join-Path $dir.FullName "Folder.ini"
         if (Test-Path $iniFile) {
-            $rawIni = Get-Content -LiteralPath $iniFile -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+            $rawIni = [IO.File]::ReadAllText($iniFile, $Utf8NoBom)
             $wx = $null; $wy = $null
             if ($rawIni -match '(?m)^WindowX=(-?\d+)') { $wx = $matches[1] }
             if ($rawIni -match '(?m)^WindowY=(-?\d+)') { $wy = $matches[1] }
             if ($null -ne $wx -and $null -ne $wy) {
-                $existingPos[$_.Name] = @{ X = $wx; Y = $wy }
+                $existingPos[$dir.Name] = @{ X = $wx; Y = $wy }
             }
         }
     }
@@ -1229,14 +1290,30 @@ function Write-Launcher($Data) {
     $popupAlphaScale = [Math]::Round($popOp / 100.0, 2).ToString([System.Globalization.CultureInfo]::InvariantCulture)
     $previewAlpha = [int][Math]::Round(255 * ($pOp / 100.0))
 
+    $appCols = if ($Data.PSObject.Properties['gridColumns'] -and $null -ne $Data.gridColumns) { [int]$Data.gridColumns } else { 4 }
+    if ($appCols -notin @(3, 4, 5)) { $appCols = 4 }
+
+    $density = if ($Data.PSObject.Properties['gridDensity'] -and $Data.gridDensity) { [string]$Data.gridDensity } else { "Standard" }
+    if ($density -eq "Compact") {
+        $cellW = 84; $cellH = 82; $padX = 12; $padY = 42
+        $iconSize = 34; $labelOffset = 38; $labelH = 36; $bottomPad = 12
+    } else {
+        $cellW = 104; $cellH = 98; $padX = 16; $padY = 48
+        $iconSize = 40; $labelOffset = 45; $labelH = 44; $bottomPad = 16
+    }
+
     # Only delete directories for folders that were removed from Data.json
-    Get-ChildItem -LiteralPath $FolderRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-        if ($_.Name -notin $validNames) {
-            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    $removedFolders = New-Object System.Collections.Generic.List[string]
+    foreach ($dir in $existingDirs) {
+        if ($dir.Name -notin $validNames) {
+            [void]$removedFolders.Add($dir.Name)
+            Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
-    for ($i=0; $i -lt $folders.Count; $i++) {
+    $changedFolders = New-Object System.Collections.Generic.List[string]
+
+    for ($i = 0; $i -lt $folders.Count; $i++) {
         $folder = $folders[$i]
         $folderId = [string]$folder.id
         $folderName = $validNames[$i]
@@ -1256,6 +1333,7 @@ function Write-Launcher($Data) {
         $folderLines = New-Object System.Collections.Generic.List[string]
         $folderLines.Add("[Rainmeter]")
         $folderLines.Add("Update=16")
+        $folderLines.Add("DefaultUpdateDivider=-1")
         $folderLines.Add("AccurateText=1")
         $folderLines.Add("DynamicWindowSize=1")
         $folderLines.Add("Draggable=1")
@@ -1279,21 +1357,6 @@ function Write-Launcher($Data) {
         $folderLines.Add("PreviewAlpha=$previewAlpha")
 
         $apps = @($folder.shortcuts)
-
-        # Read configured column count (clamped to 3, 4, or 5)
-        $appCols = if ($Data.PSObject.Properties['gridColumns'] -and $null -ne $Data.gridColumns) { [int]$Data.gridColumns } else { 4 }
-        if ($appCols -notin @(3, 4, 5)) { $appCols = 4 }
-
-        # Read spacing density preset
-        $density = if ($Data.PSObject.Properties['gridDensity'] -and $Data.gridDensity) { [string]$Data.gridDensity } else { "Standard" }
-        if ($density -eq "Compact") {
-            $cellW = 84; $cellH = 82; $padX = 12; $padY = 42
-            $iconSize = 34; $labelOffset = 38; $labelH = 36; $bottomPad = 12
-        } else {
-            $cellW = 104; $cellH = 98; $padX = 16; $padY = 48
-            $iconSize = 40; $labelOffset = 45; $labelH = 44; $bottomPad = 16
-        }
-
         $rows = [Math]::Max(1, [Math]::Ceiling([Math]::Max(1, $apps.Count) / $appCols))
         $panelW = (2 * $padX) + ($appCols * $cellW)
         $panelH = $padY + ($rows * $cellH) + $bottomPad
@@ -1308,17 +1371,15 @@ function Write-Launcher($Data) {
         $folderLines.Add("FolderPath=#CURRENTCONFIGDIR#")
         $folderLines.Add("")
         $folderLines.Add("@Include=#@#FolderTemplate.inc")
-        $folderLines.Add("ImageAlpha=#PreviewAlpha#")
         $folderLines.Add("")
 
-        # In Folder.ini, check if this folder has a custom closed overlay
+        # Check if this folder has a custom closed overlay icon
         $folderIcon = ""
         if ($folder.PSObject.Properties['icon'] -and !([string]::IsNullOrEmpty($folder.icon))) {
             $folderIcon = [string]$folder.icon
         }
 
-        # Replace existing mini-icon previews & generate conditional visual previews
-        if (![string]::IsNullOrEmpty($folderIcon) -and (Test-Path (Join-Path $IconDir $folderIcon))) {
+        if (![string]::IsNullOrEmpty($folderIcon) -and $iconSet.Contains($folderIcon)) {
             $folderLines.Add("[FolderCustomIconOverlay]")
             $folderLines.Add("Meter=Image")
             $folderLines.Add("ImageName=#ROOTCONFIGPATH#Icons\$folderIcon")
@@ -1333,16 +1394,15 @@ function Write-Launcher($Data) {
             $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]')
             $folderLines.Add("")
         } else {
-            # Run the 2x2 mini icon preview generator loop:
             $previewCount = [Math]::Min(4, $apps.Count)
-            for ($p=0; $p -lt $previewCount; $p++) {
+            for ($p = 0; $p -lt $previewCount; $p++) {
                 $pApp = $apps[$p]
                 $pCol = $p % 2
                 $pRow = [Math]::Floor($p / 2)
                 $px = 38 + ($pCol * 20)
                 $py = 24 + ($pRow * 20)
                 $pIcon = [string]$pApp.icon
-                if (!$pIcon -or !(Test-Path (Join-Path $IconDir $pIcon))) { $pIcon = "app_default.png" }
+                if (!$pIcon -or !$iconSet.Contains($pIcon)) { $pIcon = "app_default.png" }
 
                 $folderLines.Add("[FolderPreview_${p}]")
                 $folderLines.Add("Meter=Image")
@@ -1378,7 +1438,7 @@ function Write-Launcher($Data) {
             $folderLines.Add("")
         }
 
-        for ($j=0; $j -lt $apps.Count; $j++) {
+        for ($j = 0; $j -lt $apps.Count; $j++) {
             $app = $apps[$j]
             $col = $j % $appCols
             $row = [Math]::Floor($j / $appCols)
@@ -1388,7 +1448,7 @@ function Write-Launcher($Data) {
             $relIconY = $padY + ($row * $cellH)
             $relLabelY = $relIconY + $labelOffset
 
-            # Match HoverHighlight / SelectionHighlight bounds from FolderPopup.lua
+            # Full-tile hitbox dimensions (read directly by FolderPopup.lua via GetH())
             $relBoxX = $padX + ($col * $cellW) + 3
             $relBoxY = $relIconY - 6
             $boxW = $cellW - 6
@@ -1403,7 +1463,7 @@ function Write-Launcher($Data) {
 
             $appName = Escape-Ini ([string]$app.name)
             $iconName = [string]$app.icon
-            if (!$iconName -or !(Test-Path (Join-Path $IconDir $iconName))) { $iconName = "app_default.png" }
+            if (!$iconName -or !$iconSet.Contains($iconName)) { $iconName = "app_default.png" }
             $path = Escape-Ini ([string]$app.path)
 
             $folderLines.Add("[AppIcon_${j}]")
@@ -1459,56 +1519,99 @@ function Write-Launcher($Data) {
             $folderLines.Add('LeftMouseDoubleClickAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
         }
+
         $iniTarget = Join-Path $folderDir "Folder.ini"
-        [IO.File]::WriteAllLines($iniTarget, $folderLines, $utf8)
+        $newContent = ($folderLines -join "`r`n") + "`r`n"
+        $needsWrite = $true
+        if (Test-Path $iniTarget) {
+            $oldContent = [IO.File]::ReadAllText($iniTarget, $Utf8NoBom)
+            if ($oldContent -eq $newContent) {
+                $needsWrite = $false
+            }
+        }
+        if ($needsWrite) {
+            [IO.File]::WriteAllText($iniTarget, $newContent, $Utf8NoBom)
+            [void]$changedFolders.Add($folderName)
+        }
+    }
+
+    Remove-OrphanedIcons $Data $existingIconPaths
+
+    return [pscustomobject]@{
+        Changed = @($changedFolders)
+        Removed = @($removedFolders)
+        All     = @($validNames)
     }
 }
 
 function Refresh-Skin {
-    if (Test-Path $RainmeterExe) {
-        $data = Load-Data
-        $skinName = Split-Path -Leaf $Root
-        $folderNames = @(Get-FolderDirectoryNames $data.folders)
+    param(
+        $Data = $null,
+        [string[]]$TargetFolders,
+        [string[]]$RemovedFolders = @()
+    )
+    if (!(Test-Path $RainmeterExe)) { return }
+    if ($null -eq $Data) { $Data = Load-Data }
 
-        # 1. Instantly close any open/closing popups so shifted coordinates are restored first
-        foreach ($folderName in $folderNames) {
+    $skinName = Split-Path -Leaf $Root
+    $targets = if ($PSBoundParameters.ContainsKey('TargetFolders')) {
+        @($TargetFolders | Where-Object { ![string]::IsNullOrEmpty($_) })
+    } else {
+        @(Get-FolderDirectoryNames $Data.folders)
+    }
+    $removed = @($RemovedFolders | Where-Object { ![string]::IsNullOrEmpty($_) })
+
+    # 1. Batch deactivate removed skins and instantly close any open popups on target skins
+    $preBangs = New-Object System.Collections.Generic.List[string]
+    foreach ($rem in $removed) {
+        $preBangs.Add("[!DeactivateConfig `"$skinName\Folders\$rem`"]")
+    }
+    foreach ($folderName in $targets) {
+        $cfg = "$skinName\Folders\$folderName"
+        $preBangs.Add("[!CommandMeasure MeasureToggle `"ClosePanelInstant()`" `"$cfg`"]")
+    }
+    Invoke-RainmeterBangs @($preBangs)
+
+    if ($targets.Count -eq 0) { return }
+    Start-Sleep -Milliseconds 60
+
+    # 2. Batch activate and refresh target skins from updated Folder.ini
+    $activateBangs = New-Object System.Collections.Generic.List[string]
+    $refreshBangs = New-Object System.Collections.Generic.List[string]
+    foreach ($folderName in $targets) {
+        $iniPath = Join-Path $FolderRoot "$folderName\Folder.ini"
+        if (Test-Path $iniPath) {
             $cfg = "$skinName\Folders\$folderName"
-            Start-Process -FilePath $RainmeterExe -ArgumentList "!CommandMeasure MeasureToggle `"ClosePanelInstant()`" `"$cfg`"" -WindowStyle Hidden
-        }
-        Start-Sleep -Milliseconds 60
-
-        # 2. Refresh each folder skin from the updated Folder.ini and keep it draggable
-        foreach ($folderName in $folderNames) {
-            $iniPath = Join-Path $FolderRoot "$folderName\Folder.ini"
-            if (Test-Path $iniPath) {
-                $cfg = "$skinName\Folders\$folderName"
-                Start-Process -FilePath $RainmeterExe -ArgumentList "!ActivateConfig `"$cfg`" `"Folder.ini`"" -WindowStyle Hidden
-                Start-Sleep -Milliseconds 25
-                Start-Process -FilePath $RainmeterExe -ArgumentList "!Refresh `"$cfg`"" -WindowStyle Hidden
-                Start-Process -FilePath $RainmeterExe -ArgumentList "!Draggable 1 `"$cfg`"" -WindowStyle Hidden
-            }
+            $activateBangs.Add("[!ActivateConfig `"$cfg`" `"Folder.ini`"]")
+            $refreshBangs.Add("[!Refresh `"$cfg`"][!Draggable 1 `"$cfg`"]")
         }
     }
+    Invoke-RainmeterBangs @($activateBangs)
+    Start-Sleep -Milliseconds 40
+    Invoke-RainmeterBangs @($refreshBangs)
 }
 
-function Sync-FolderSkins {
+function Sync-FolderSkins($Data = $null) {
     if (!(Test-Path $RainmeterExe)) { return }
+    if ($null -eq $Data) { $Data = Load-Data }
+
     $stateFile = Join-Path $Resource "FolderState.txt"
     $previous = @()
     if (Test-Path $stateFile) {
         $previous = @(Get-Content -LiteralPath $stateFile -Encoding UTF8 | Where-Object { $_ })
     }
-    $data = Load-Data
     $skinName = Split-Path -Leaf $Root
-    $current = @(Get-FolderDirectoryNames $data.folders)
+    $current = @(Get-FolderDirectoryNames $Data.folders)
+
+    $bangs = New-Object System.Collections.Generic.List[string]
     foreach ($folderName in ($previous | Where-Object { $_ -notin $current })) {
-        Start-Process -FilePath $RainmeterExe -ArgumentList "!DeactivateConfig `"$skinName\Folders\$folderName`"" -WindowStyle Hidden
+        $bangs.Add("[!DeactivateConfig `"$skinName\Folders\$folderName`"]")
     }
     foreach ($folderName in $current) {
-        Start-Process -FilePath $RainmeterExe -ArgumentList "!ActivateConfig `"$skinName\Folders\$folderName`" Folder.ini" -WindowStyle Hidden
-        Start-Sleep -Milliseconds 40
+        $bangs.Add("[!ActivateConfig `"$skinName\Folders\$folderName`" `"Folder.ini`"]")
     }
-    [IO.File]::WriteAllLines($stateFile, $current, (New-Object System.Text.UTF8Encoding($false)))
+    Invoke-RainmeterBangs @($bangs)
+    [IO.File]::WriteAllLines($stateFile, $current, $Utf8NoBom)
 }
 
 function Get-Folder($Data) {
@@ -1520,7 +1623,7 @@ function Get-Folder($Data) {
 
 $data = Load-Data
 switch ($Action) {
-    "LoadFolders" { Sync-FolderSkins; exit 0 }
+    "LoadFolders" { Sync-FolderSkins $data; exit 0 }
     "Manage" { Show-FolderManager ([ref]$data); exit 0 }
     "AddFolder" {
         $name = Show-TextPrompt "Create folder" "Enter a folder name:"
@@ -1529,7 +1632,7 @@ switch ($Action) {
                 [Windows.Forms.MessageBox]::Show("A folder with that name already exists.") | Out-Null
             } else {
                 $id = "f_" + [Guid]::NewGuid().ToString("N").Substring(0,8)
-                $data.folders = @($data.folders) + @(@{id=$id;name=$name;shortcuts=@()})
+                $data.folders = @($data.folders) + @([pscustomobject]@{ id = $id; name = $name; shortcuts = @() })
             }
         }
     }
@@ -1553,32 +1656,37 @@ switch ($Action) {
             $folder = Get-Folder $data
             if ($folder) {
                 $dialog = New-Object Windows.Forms.OpenFileDialog
-                $dialog.Title = "Choose an application, shortcut, or file"
-                $dialog.Filter = "All files (*.*)|*.*"
-                $dialog.CheckFileExists = $true
-                $dialog.Multiselect = $false
-                if ($dialog.ShowDialog() -eq "OK") {
-                    $path = $dialog.FileName
-                    $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
-                    $name = Show-TextPrompt "Shortcut name" "Display name:" $defaultName
-                    if (!$name) { $name = $defaultName }
-                    $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
-                    Extract-Icon $path (Join-Path $IconDir $iconFile)
-                    $entry = @{id=[Guid]::NewGuid().ToString("N");name=$name;path=$path;icon=$iconFile}
-                    $folder.shortcuts = @($folder.shortcuts) + @($entry)
-                    if ([Windows.Forms.MessageBox]::Show("Use a custom PNG/ICO icon instead?","Custom icon","YesNo","Question") -eq "Yes") {
-                        $iconDialog = New-Object Windows.Forms.OpenFileDialog
-                        $iconDialog.Title = "Choose a custom icon"
-                        $iconDialog.Filter = "Icon files (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp|All files (*.*)|*.*"
-                        if ($iconDialog.ShowDialog() -eq "OK") {
-                            $customName = "custom_" + [Guid]::NewGuid().ToString("N") + ".png"
-                            $img = [Drawing.Image]::FromFile($iconDialog.FileName)
-                            $bmp = New-Object Drawing.Bitmap($img)
-                            $bmp.Save((Join-Path $IconDir $customName),[Drawing.Imaging.ImageFormat]::Png)
-                            $bmp.Dispose(); $img.Dispose()
-                            $entry.icon = $customName
+                try {
+                    $dialog.Title = "Choose an application, shortcut, or file"
+                    $dialog.Filter = "All files (*.*)|*.*"
+                    $dialog.CheckFileExists = $true
+                    $dialog.Multiselect = $false
+                    if ($dialog.ShowDialog() -eq "OK") {
+                        $path = $dialog.FileName
+                        $defaultName = [IO.Path]::GetFileNameWithoutExtension($path)
+                        $name = Show-TextPrompt "Shortcut name" "Display name:" $defaultName
+                        if (!$name) { $name = $defaultName }
+                        $iconFile = "app_" + [Guid]::NewGuid().ToString("N") + ".png"
+                        Extract-Icon $path (Join-Path $IconDir $iconFile)
+                        $entry = [pscustomobject]@{ id = [Guid]::NewGuid().ToString("N"); name = $name; path = $path; icon = $iconFile }
+                        $folder.shortcuts = @($folder.shortcuts) + @($entry)
+                        if ([Windows.Forms.MessageBox]::Show("Use a custom PNG/ICO icon instead?","Custom icon","YesNo","Question") -eq "Yes") {
+                            $iconDialog = New-Object Windows.Forms.OpenFileDialog
+                            try {
+                                $iconDialog.Title = "Choose a custom icon"
+                                $iconDialog.Filter = "Icon files (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp|All files (*.*)|*.*"
+                                if ($iconDialog.ShowDialog() -eq "OK") {
+                                    $customName = "custom_" + [Guid]::NewGuid().ToString("N") + ".png"
+                                    Save-IconAsPng $iconDialog.FileName (Join-Path $IconDir $customName)
+                                    $entry.icon = $customName
+                                }
+                            } finally {
+                                $iconDialog.Dispose()
+                            }
                         }
                     }
+                } finally {
+                    $dialog.Dispose()
                 }
             }
         }
@@ -1601,15 +1709,16 @@ switch ($Action) {
             if ($chosen) {
                 $app = @($apps | Where-Object { $_.name -eq $chosen })[0]
                 $dialog = New-Object Windows.Forms.OpenFileDialog
-                $dialog.Title = "Choose a custom icon"
-                $dialog.Filter = "Image/icon files (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp|All files (*.*)|*.*"
-                if ($dialog.ShowDialog() -eq "OK") {
-                    $customName = "custom_" + [Guid]::NewGuid().ToString("N") + ".png"
-                    $img = [Drawing.Image]::FromFile($dialog.FileName)
-                    $bmp = New-Object Drawing.Bitmap($img)
-                    $bmp.Save((Join-Path $IconDir $customName),[Drawing.Imaging.ImageFormat]::Png)
-                    $bmp.Dispose(); $img.Dispose()
-                    $app.icon = $customName
+                try {
+                    $dialog.Title = "Choose a custom icon"
+                    $dialog.Filter = "Image/icon files (*.png;*.ico;*.jpg;*.bmp)|*.png;*.ico;*.jpg;*.bmp|All files (*.*)|*.*"
+                    if ($dialog.ShowDialog() -eq "OK") {
+                        $customName = "custom_" + [Guid]::NewGuid().ToString("N") + ".png"
+                        Save-IconAsPng $dialog.FileName (Join-Path $IconDir $customName)
+                        $app.icon = $customName
+                    }
+                } finally {
+                    $dialog.Dispose()
                 }
             }
         }
@@ -1617,26 +1726,36 @@ switch ($Action) {
     "SetAnimation" {
         $data.animation = $AnimStyle
         Save-Data $data
-        Write-Launcher $data
-        Refresh-Skin
+        $sync = Write-Launcher $data
+        Refresh-Skin $data -TargetFolders @($sync.Changed) -RemovedFolders @($sync.Removed)
         exit 0
     }
     "ResetLayout" { }
     "Initialize" {
-        foreach ($f in @($data.folders)) {
-            foreach ($s in @($f.shortcuts)) {
-                if ($s.icon -like "app_*" -and (Test-Path $s.path)) {
-                    Extract-Icon $s.path (Join-Path $IconDir $s.icon)
+        $shell = $null
+        try {
+            foreach ($f in @($data.folders)) {
+                foreach ($s in @($f.shortcuts)) {
+                    if ($s.icon -like "app_*" -and (Test-Path $s.path)) {
+                        if ($null -eq $shell -and [IO.Path]::GetExtension($s.path).Equals(".lnk", [StringComparison]::OrdinalIgnoreCase)) {
+                            $shell = New-Object -ComObject WScript.Shell
+                        }
+                        Extract-Icon $s.path (Join-Path $IconDir $s.icon) $shell
+                    }
                 }
+            }
+        } finally {
+            if ($null -ne $shell) {
+                [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
             }
         }
     }
 }
 
-if ($Action -eq "LoadFolders") {
-    exit 0
-}
-
 Save-Data $data
-Write-Launcher $data
-Refresh-Skin
+$sync = Write-Launcher $data
+if ($Action -in @("ResetLayout", "Initialize")) {
+    Refresh-Skin $data -RemovedFolders @($sync.Removed)
+} else {
+    Refresh-Skin $data -TargetFolders @($sync.Changed) -RemovedFolders @($sync.Removed)
+}
