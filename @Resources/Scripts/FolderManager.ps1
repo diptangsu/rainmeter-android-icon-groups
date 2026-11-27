@@ -1385,6 +1385,19 @@ function Write-Launcher($Data) {
             $relIconY = $padY + ($row * $cellH)
             $relLabelY = $relIconY + $labelOffset
 
+            # Match HoverHighlight / SelectionHighlight bounds from FolderPopup.lua
+            $relBoxX = $padX + ($col * $cellW) + 3
+            $relBoxY = $relIconY - 6
+            $boxW = $cellW - 6
+            if ($density -eq "Compact") {
+                $boxH = 72
+            } else {
+                $nameLen = ([string]$app.name).Length
+                if ($nameLen -le 13) { $boxH = 74 }
+                elseif ($nameLen -le 26) { $boxH = 88 }
+                else { $boxH = 96 }
+            }
+
             $appName = Escape-Ini ([string]$app.name)
             $iconName = [string]$app.icon
             if (!$iconName -or !(Test-Path (Join-Path $IconDir $iconName))) { $iconName = "app_default.png" }
@@ -1402,11 +1415,6 @@ function Write-Launcher($Data) {
             $folderLines.Add("PreserveAspectRatio=1")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
-            $folderLines.Add("MouseActionCursorName=HAND")
-            $folderLines.Add('MouseOverAction=[!CommandMeasure MeasureToggle "HoverApp(' + $j + ')"]')
-            $folderLines.Add('MouseLeaveAction=[!CommandMeasure MeasureToggle "UnhoverApp(' + $j + ')"]')
-            $folderLines.Add('LeftMouseUpAction=[!CommandMeasure MeasureToggle "SelectApp(' + $j + ')"]')
-            $folderLines.Add('LeftMouseDoubleClickAction=["' + $path + '"][!CommandMeasure MeasureToggle "ClosePanel()"]')
             $folderLines.Add("")
 
             $folderLines.Add("[AppLabel_${j}]")
@@ -1426,6 +1434,19 @@ function Write-Launcher($Data) {
             $folderLines.Add("FontEffectColor=0,0,0,(Round(220 * #AnimAlpha# / 255))")
             $folderLines.Add("ClipString=2")
             $folderLines.Add("AntiAlias=1")
+            $folderLines.Add("DynamicVariables=1")
+            $folderLines.Add("Hidden=1")
+            $folderLines.Add("")
+
+            # Full-tile invisible hitbox placed on top of icon + label to prevent hover flicker
+            $folderLines.Add("[AppHitbox_${j}]")
+            $folderLines.Add("Meter=Image")
+            $folderLines.Add("Group=PanelContent")
+            $folderLines.Add("SolidColor=0,0,0,1")
+            $folderLines.Add("X=((#PanelX# + #AnimShiftX# + ($relBoxX * #AnimScale#)) * #IsOpen#)")
+            $folderLines.Add("Y=((#PanelY# + #AnimShiftY# + ($relBoxY * #AnimScale#)) * #IsOpen#)")
+            $folderLines.Add("W=($boxW * #AnimScale# * #IsOpen#)")
+            $folderLines.Add("H=($boxH * #AnimScale# * #IsOpen#)")
             $folderLines.Add("DynamicVariables=1")
             $folderLines.Add("Hidden=1")
             $folderLines.Add("MouseActionCursorName=HAND")
