@@ -10,8 +10,6 @@ AnimShiftX=0
 AnimShiftY=0
 SelW=96
 SelH=84
-FolderAlphaScale=1.0
-PreviewAlpha=235
 OrigX=0
 OrigY=0
 PanelX=18
@@ -23,9 +21,6 @@ HoverY=0
 HoverW=98
 HoverH=88
 HoverAlpha=0
-FolderAlphaScale=1
-PopupAlphaScale=1
-PreviewAlpha=235
 
 [MeasureToggle]
 Measure=Script
