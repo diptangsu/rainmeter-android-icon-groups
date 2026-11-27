@@ -228,13 +228,19 @@ function ApplyAnimFrame(p, skipRedraw)
         shiftY = openUp and math.floor((1 - scale) * cachedPanelH) or math.floor(-(1 - scale) * 28)
     elseif style == 'ElasticBounce' then
         local pm1 = p - 1
-        local backEase = 1 + 3.6 * (pm1 * pm1 * pm1) + 2.6 * (pm1 * pm1)
+        local backEase = 1 + 2.4 * (pm1 * pm1 * pm1) + 1.4 * (pm1 * pm1)
         scale = 0.20 + (0.80 * backEase)
         if scale < 0.15 then scale = 0.15 end
         local a = p * 1.8
         alpha = (a >= 1) and 255 or math.floor(255 * a + 0.5)
         shiftX = openLeft and math.floor((1 - scale) * (cachedPanelW - 38)) or math.floor((1 - scale) * 20)
         shiftY = openUp and math.floor((1 - scale) * cachedPanelH) or math.floor(-(1 - scale) * 28)
+
+        -- Prevent negative local coordinates from clipping the left/top border at peak bounce
+        local curPanelX = tonumber(SKIN:ReplaceVariables('#PanelX#')) or 18
+        local curPanelY = tonumber(SKIN:ReplaceVariables('#PanelY#')) or 104
+        if (curPanelX + shiftX) < 2 then shiftX = 2 - curPanelX end
+        if (curPanelY + shiftY) < 2 then shiftY = 2 - curPanelY end
     elseif style == 'Slide' then
         local dist = math.floor((1 - ease) * 75)
         shiftX = openLeft and dist or -math.floor(dist * 0.35)

@@ -69,6 +69,7 @@ LeftMouseUpAction=[!CommandMeasure MeasureToggle "TogglePanel()"]
 ; --- ANIMATED LIQUID GLASS POPUP PANEL ---
 [PanelBackground]
 Meter=Shape
+Padding=2,2,2,2
 Group=PanelContent
 X=((#PanelX# + #AnimShiftX#) * #IsOpen#)
 Y=((#PanelY# + #AnimShiftY#) * #IsOpen#)
