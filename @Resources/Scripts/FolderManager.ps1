@@ -438,6 +438,9 @@ public static class ModernWin32 {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
 
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
     public static void SetDarkTitleBar(IntPtr hwnd, bool enabled) {
         if (hwnd == IntPtr.Zero) return;
         try {
@@ -445,6 +448,8 @@ public static class ModernWin32 {
             if (DwmSetWindowAttribute(hwnd, 20, ref val, sizeof(int)) != 0) {
                 DwmSetWindowAttribute(hwnd, 19, ref val, sizeof(int));
             }
+            // Force immediate non-client titlebar repaint (SWP_NOSIZE|SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_FRAMECHANGED)
+            SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, 0x0037u);
         } catch { }
     }
 
@@ -581,6 +586,8 @@ public class ModernButton : Control {
             ControlStyles.Selectable,
             true
         );
+        // Disable built-in Control Click so OnMouseUp does not fire Click twice
+        this.SetStyle(ControlStyles.StandardClick | ControlStyles.StandardDoubleClick, false);
         this.CornerRadius = 7;
         this.TextPaddingLeft = 12;
         this.OuterBackColor = Color.FromArgb(15, 18, 25);
@@ -734,6 +741,7 @@ public class ModernButton : Control {
 
 public class ModernSwatch : Control {
     private bool _hover = false;
+    private bool _pressed = false;
     private bool _selected = false;
 
     public Color OuterBackColor { get; set; }
@@ -760,6 +768,7 @@ public class ModernSwatch : Control {
             ControlStyles.ResizeRedraw,
             true
         );
+        this.SetStyle(ControlStyles.StandardClick | ControlStyles.StandardDoubleClick, false);
         this.Size = new Size(24, 24);
         this.OuterBackColor = Color.FromArgb(26, 31, 44);
         this.SwatchColor = Color.FromArgb(59, 130, 246);
@@ -782,13 +791,26 @@ public class ModernSwatch : Control {
     protected override void OnMouseLeave(EventArgs e) {
         base.OnMouseLeave(e);
         _hover = false;
+        _pressed = false;
         this.Invalidate();
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e) {
+        base.OnMouseDown(e);
+        if (this.Enabled && e.Button == MouseButtons.Left) {
+            _pressed = true;
+            this.Invalidate();
+        }
     }
 
     protected override void OnMouseUp(MouseEventArgs e) {
         base.OnMouseUp(e);
-        if (this.Enabled && e.Button == MouseButtons.Left && this.ClientRectangle.Contains(e.Location)) {
-            this.OnClick(EventArgs.Empty);
+        if (_pressed) {
+            _pressed = false;
+            this.Invalidate();
+            if (this.Enabled && e.Button == MouseButtons.Left && this.ClientRectangle.Contains(e.Location)) {
+                this.OnClick(EventArgs.Empty);
+            }
         }
     }
 
@@ -2117,10 +2139,14 @@ function Show-FolderManager([ref]$Data) {
         $statusLabel.ForeColor = $t.TextMuted
 
         Update-FolderCard
+        $newFolderWrap.Invalidate()
+        $shortcutRenameWrap.Invalidate()
         $sidebar.Invalidate()
         $folderList.Invalidate()
         $folderCard.Invalidate()
         $gridCard.Invalidate()
+        $grid.Invalidate()
+        $form.Invalidate($true)
     }
 
     # =========================================================================
