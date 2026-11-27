@@ -47,9 +47,15 @@ A friend of mine called my desktop ugly and cluttered and I agreed.
 
 ### Popup animation
 
-https://github.com/user-attachments/assets/ca3c0eb9-39a6-45ed-a428-d71b3415b1a9
+https://github.com/user-attachments/assets/0ef8dd39-c939-4c3f-af07-2b8bd8c734b6
 
-[Open the animation recording](Docs/bounce-animation-recording.mp4)
+### Drag & Drop shortcuts
+
+https://github.com/user-attachments/assets/60a4a450-50d7-4ddd-bb9f-df77362198b6
+
+### Folder tint color options
+
+https://github.com/user-attachments/assets/8062b525-322e-4c9c-a8d2-fabbd581699e
 
 ### Desktop
 
