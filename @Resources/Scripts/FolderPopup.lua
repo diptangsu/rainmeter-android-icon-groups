@@ -81,6 +81,7 @@ function Initialize()
     lastAlpha = -1
     lastShiftX = -9999
     lastShiftY = -9999
+    lastMatrix = ""
 
     SKIN:Bang('[!KeepOnScreen 0][!Draggable 1][!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]')
 end
@@ -130,13 +131,13 @@ function RestoreIcon(idx)
     local iconName = 'AppIcon_' .. idx
     local labelName = 'AppLabel_' .. idx
 
-    -- Use #*Var*# so Rainmeter writes literal #Var# into the meter instead of baking current values
+    -- Use #*Var*# so Rainmeter keeps literal #PanelX#/#PanelY# while TransformationMatrix handles scaling
     SKIN:Bang(
-        '[!SetOption ' .. iconName .. ' X "((#*PanelX*# + #*AnimShiftX*# + (' .. relIconX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relIconY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' W "(' .. cachedIconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' H "(' .. cachedIconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. labelName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relLabelY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
+        '[!SetOption ' .. iconName .. ' X "(#*PanelX*# + ' .. relIconX .. ')"]' ..
+        '[!SetOption ' .. iconName .. ' Y "(#*PanelY*# + ' .. relIconY .. ')"]' ..
+        '[!SetOption ' .. iconName .. ' W "' .. cachedIconSize .. '"]' ..
+        '[!SetOption ' .. iconName .. ' H "' .. cachedIconSize .. '"]' ..
+        '[!SetOption ' .. labelName .. ' Y "(#*PanelY*# + ' .. relLabelY .. ')"]' ..
         '[!SetOption ' .. labelName .. ' FontWeight "400"]' ..
         '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. ']'
     )
@@ -222,17 +223,27 @@ function SelectApp(idx)
     local relBoxX = cachedPadX + (col * cachedCellW) + 3
     local relBoxY = baseIconY - 6
 
+    local hoverClearBang = ''
+    if hoveredIdx == idx then
+        hoveredIdx = -1
+        hoverAlpha = 0
+        hoverTarget = 0
+        lastHoverAlpha = 0
+        hoverClearBang = '[!SetVariable HoverAlpha 0][!HideMeter HoverHighlight][!UpdateMeter HoverHighlight]'
+    end
+
     SKIN:Bang(
-        '[!SetOption ' .. iconName .. ' X "((#*PanelX*# + #*AnimShiftX*# + (' .. expIconX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. expIconY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' W "(' .. expIconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. iconName .. ' H "(' .. expIconSize .. ' * #*AnimScale*# * #*IsOpen*#)"]' ..
-        '[!SetOption ' .. labelName .. ' Y "((#*PanelY*# + #*AnimShiftY*# + (' .. expLabelY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
+        hoverClearBang ..
+        '[!SetOption ' .. iconName .. ' X "(#*PanelX*# + ' .. expIconX .. ')"]' ..
+        '[!SetOption ' .. iconName .. ' Y "(#*PanelY*# + ' .. expIconY .. ')"]' ..
+        '[!SetOption ' .. iconName .. ' W "' .. expIconSize .. '"]' ..
+        '[!SetOption ' .. iconName .. ' H "' .. expIconSize .. '"]' ..
+        '[!SetOption ' .. labelName .. ' Y "(#*PanelY*# + ' .. expLabelY .. ')"]' ..
         '[!SetOption ' .. labelName .. ' FontWeight "600"]' ..
         '[!SetVariable SelW ' .. selW .. ']' ..
         '[!SetVariable SelH ' .. selH .. ']' ..
-        '[!SetOption SelectionHighlight X "((#*PanelX*# + #*AnimShiftX*# + (' .. relBoxX .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
-        '[!SetOption SelectionHighlight Y "((#*PanelY*# + #*AnimShiftY*# + (' .. relBoxY .. ' * #*AnimScale*#)) * #*IsOpen*#)"]' ..
+        '[!SetOption SelectionHighlight X "(#*PanelX*# + ' .. relBoxX .. ')"]' ..
+        '[!SetOption SelectionHighlight Y "(#*PanelY*# + ' .. relBoxY .. ')"]' ..
         '[!ShowMeter SelectionHighlight]' ..
         '[!UpdateMeter ' .. iconName .. '][!UpdateMeter ' .. labelName .. '][!UpdateMeter SelectionHighlight][!Redraw]'
     )
@@ -327,6 +338,13 @@ function ApplyAnimFrame(p, skipRedraw)
     end
     shiftY = floor(topY - cachedPanelY)
 
+    -- Shared 2D affine matrix around (cachedPanelX, cachedPanelY) for icons & text meters
+    local tx = floor((cachedPanelX * (1 - scale) + shiftX) * 100 + 0.5) / 100
+    local ty = floor((cachedPanelY * (1 - scale) + shiftY) * 100 + 0.5) / 100
+    if abs(tx) < 0.005 then tx = 0 end
+    if abs(ty) < 0.005 then ty = 0 end
+    local matrix = scale .. ';0;0;' .. scale .. ';' .. tx .. ';' .. ty
+
     local bangs = {}
     if scale ~= lastScale then
         lastScale = scale
@@ -343,6 +361,10 @@ function ApplyAnimFrame(p, skipRedraw)
     if shiftY ~= lastShiftY then
         lastShiftY = shiftY
         bangs[#bangs + 1] = '[!SetVariable AnimShiftY ' .. shiftY .. ']'
+    end
+    if matrix ~= lastMatrix then
+        lastMatrix = matrix
+        bangs[#bangs + 1] = '[!SetVariable PanelMatrix "' .. matrix .. '"]'
     end
 
     if #bangs > 0 then
@@ -372,8 +394,12 @@ function Update()
             if p >= 1 then
                 animProgress = 1
                 animState = "idle"
-                ApplyAnimFrame(1, false)
-                SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle]')
+                ApplyAnimFrame(1, true)
+                SKIN:Bang(
+                    '[!ShowMeterGroup PanelHitboxes]' ..
+                    '[!UpdateMeterGroup PanelContent][!UpdateMeterGroup PanelHitboxes]' ..
+                    '[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle][!Redraw]'
+                )
                 return
             end
             animProgress = p
@@ -852,7 +878,7 @@ function OpenPanel()
         '[!SetVariable IconOffsetY ' .. iconOffsetY .. ']' ..
         '[!SetVariable PanelX ' .. panelX .. ']' ..
         '[!SetVariable PanelY ' .. panelY .. ']' ..
-        '[!ShowMeterGroup PanelContent][!HideMeter SelectionHighlight]'
+        '[!ShowMeterGroup PanelContent][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]'
 
     local moveBang = ''
     if newSkinX ~= nil and newSkinY ~= nil and (newSkinX ~= skinX or newSkinY ~= skinY) then
@@ -860,12 +886,12 @@ function OpenPanel()
         moveBang = '[!Move ' .. newSkinX .. ' ' .. newSkinY .. ']'
     end
 
-    lastScale, lastAlpha, lastShiftX, lastShiftY = -1, -1, -9999, -9999
+    lastScale, lastAlpha, lastShiftX, lastShiftY, lastMatrix = -1, -1, -9999, -9999, ''
 
     if cachedStyle == 'None' then
         animState = "idle"
         animProgress = 1
-        SKIN:Bang(setupBang)
+        SKIN:Bang(setupBang .. '[!ShowMeterGroup PanelHitboxes]')
         ApplyAnimFrame(1, true)
         SKIN:Bang('[!SetOption MeasureToggle UpdateDivider -1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]' .. moveBang)
     else
@@ -873,7 +899,7 @@ function OpenPanel()
         animStartProgress = (animProgress > 0 and animProgress < 1) and animProgress or 0.12
         animProgress = animStartProgress
         animStartTime = clock()
-        SKIN:Bang(setupBang)
+        SKIN:Bang(setupBang .. '[!HideMeterGroup PanelHitboxes]')
         ApplyAnimFrame(animProgress, true)
         SKIN:Bang('[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle][!UpdateMeter *][!Redraw]' .. moveBang)
     end
@@ -891,10 +917,18 @@ function ClosePanel()
     if cachedStyle == 'None' then
         FinishClose()
     else
+        hoveredIdx = -1
+        hoverAlpha = 0
+        hoverTarget = 0
+        lastHoverAlpha = 0
         animState = "closing"
         animStartProgress = (animProgress > 0) and animProgress or 1
         animStartTime = clock()
-        SKIN:Bang('[!HideMeter SelectionHighlight][!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]')
+        SKIN:Bang(
+            '[!HideMeterGroup PanelHitboxes][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]' ..
+            '[!SetVariable HoverAlpha 0][!UpdateMeter HoverHighlight]' ..
+            '[!SetOption MeasureToggle UpdateDivider 1][!UpdateMeasure MeasureToggle]'
+        )
     end
 end
 
@@ -912,17 +946,18 @@ function FinishClose(immediate)
     cachedMaxLocalRight = 99999
     cachedMinLocalY = 2
     cachedMaxLocalBottom = 99999
-    lastScale, lastAlpha, lastShiftX, lastShiftY = 1, 0, 0, 0
+    lastScale, lastAlpha, lastShiftX, lastShiftY, lastMatrix = 1, 0, 0, 0, '1;0;0;1;0;0'
 
     local curX = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGX#'))
     local curY = tonumber(SKIN:ReplaceVariables('#CURRENTCONFIGY#'))
     local needsMove = (savedOrigX ~= nil and savedOrigY ~= nil) and (didMove or curX ~= savedOrigX or curY ~= savedOrigY)
 
     local resetBang =
-        '[!HideMeterGroup PanelContent][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]' ..
+        '[!HideMeterGroup PanelContent][!HideMeterGroup PanelHitboxes][!HideMeter SelectionHighlight][!HideMeter HoverHighlight]' ..
         '[!SetVariable IsOpen 0][!SetVariable HoverAlpha 0]' ..
         '[!SetVariable AnimScale 1][!SetVariable AnimAlpha 0]' ..
         '[!SetVariable AnimShiftX 0][!SetVariable AnimShiftY 0]' ..
+        '[!SetVariable PanelMatrix "1;0;0;1;0;0"]' ..
         '[!SetVariable IconOffsetX 0][!SetVariable IconOffsetY 0]' ..
         '[!SetVariable PanelX ' .. DEFAULT_PANEL_X .. '][!SetVariable PanelY ' .. DEFAULT_PANEL_Y .. ']' ..
         '[!KeepOnScreen 0][!UpdateMeter *][!Redraw]'

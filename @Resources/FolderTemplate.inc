@@ -8,6 +8,7 @@ AnimScale=1
 AnimAlpha=255
 AnimShiftX=0
 AnimShiftY=0
+PanelMatrix=1;0;0;1;0;0
 SelW=96
 SelH=84
 OrigX=0
@@ -73,32 +74,31 @@ Hidden=1
 DynamicVariables=1
 LeftMouseUpAction=[!CommandMeasure MeasureToggle "ClearSelection()"]
 
+; Idle-only highlight meters (excluded from PanelContent so they skip animation ticks)
 [HoverHighlight]
 Meter=Shape
-Group=PanelContent
-X=((#PanelX# + #AnimShiftX# + (#HoverX# * #AnimScale#)) * #IsOpen#)
-Y=((#PanelY# + #AnimShiftY# + (#HoverY# * #AnimScale#)) * #IsOpen#)
-Shape=Rectangle 0,0,(#HoverW# * #AnimScale#),(#HoverH# * #AnimScale#),(10 * #AnimScale#) | Fill Color 255,255,255,(Round(28 * #HoverAlpha# * #AnimAlpha# / 255)) | StrokeWidth 1 | Stroke Color 255,255,255,(Round(55 * #HoverAlpha# * #AnimAlpha# / 255))
+X=(#PanelX# + #HoverX#)
+Y=(#PanelY# + #HoverY#)
+Shape=Rectangle 0,0,#HoverW#,#HoverH#,10 | Fill Color 255,255,255,(Round(28 * #HoverAlpha#)) | StrokeWidth 1 | Stroke Color 255,255,255,(Round(55 * #HoverAlpha#))
 Hidden=1
 DynamicVariables=1
 UpdateDivider=-1
 
 [SelectionHighlight]
 Meter=Shape
-Group=PanelContent
 X=0
 Y=0
-Shape=Rectangle 0,0,(#SelW# * #AnimScale#),(#SelH# * #AnimScale#),(10 * #AnimScale#) | Fill Color 130,175,255,(Round(32 * #AnimAlpha# / 255)) | StrokeWidth 1.2 | Stroke Color 140,190,255,(Round(155 * #AnimAlpha# / 255))
+Shape=Rectangle 0,0,#SelW#,#SelH#,10 | Fill Color 130,175,255,32 | StrokeWidth 1.2 | Stroke Color 140,190,255,155
 Hidden=1
 DynamicVariables=1
 
 [PanelTitle]
 Meter=String
 Group=PanelContent
-X=((#PanelX# + #AnimShiftX# + (16 * #AnimScale#)) * #IsOpen#)
-Y=((#PanelY# + #AnimShiftY# + (14 * #AnimScale#)) * #IsOpen#)
-W=((#PanelWidth# - 60) * #AnimScale# * #IsOpen#)
-H=(24 * #AnimScale# * #IsOpen#)
+X=(#PanelX# + 16)
+Y=(#PanelY# + 14)
+W=(#PanelWidth# - 60)
+H=24
 Text=#FolderName#
 FontFace=Segoe UI
 FontSize=12
@@ -107,14 +107,15 @@ FontColor=245,247,255,#AnimAlpha#
 AntiAlias=1
 Hidden=1
 DynamicVariables=1
+TransformationMatrix=#PanelMatrix#
 
 [PanelClose]
 Meter=String
 Group=PanelContent
-X=((#PanelX# + #AnimShiftX# + ((#PanelWidth# - 24) * #AnimScale#)) * #IsOpen#)
-Y=((#PanelY# + #AnimShiftY# + (12 * #AnimScale#)) * #IsOpen#)
-W=(24 * #AnimScale# * #IsOpen#)
-H=(24 * #AnimScale# * #IsOpen#)
+X=(#PanelX# + #PanelWidth# - 24)
+Y=(#PanelY# + 12)
+W=24
+H=24
 Text=[\x00D7]
 FontFace=Segoe UI
 FontSize=14
@@ -125,3 +126,4 @@ Hidden=1
 MouseActionCursorName=HAND
 LeftMouseUpAction=[!CommandMeasure MeasureToggle "ClosePanel()"]
 DynamicVariables=1
+TransformationMatrix=#PanelMatrix#
